@@ -1,63 +1,128 @@
 import 'package:flutter/material.dart';
-import 'chat_screen.dart';
+import '../ui/glass.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 
 class HomeScreen extends StatelessWidget {
-  const HomeScreen({super.key});
+  final ValueChanged<String> onSelectPersona;
+  final ThemeMode themeMode;
+  final ValueChanged<ThemeMode> onThemeModeChanged;
 
-  void goToChat(BuildContext context, String persona) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => ChatScreen(persona: persona),
+  const HomeScreen({
+    super.key,
+    required this.onSelectPersona,
+    required this.themeMode,
+    required this.onThemeModeChanged,
+  });
+
+  Widget personaCard(
+    BuildContext context,
+    String title,
+    String subtitle,
+    IconData icon,
+  ) {
+    final scheme = Theme.of(context).colorScheme;
+    return GestureDetector(
+      onTap: () => onSelectPersona(title),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: GlassCard(
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: scheme.primary.withValues(alpha: 0.16),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(icon, color: scheme.primary),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 16,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        color: scheme.onSurface.withValues(alpha: 0.65),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.arrow_forward_ios_rounded,
+                size: 16,
+                color: scheme.onSurface.withValues(alpha: 0.45),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
 
-Widget personaCard(BuildContext context, String title, IconData icon) {
-  return GestureDetector(
-    onTap: () => goToChat(context, title),
-    child: Container(
-      margin: const EdgeInsets.symmetric(vertical: 8),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.deepPurple.shade50,
-        borderRadius: BorderRadius.circular(15),
-      ),
-      child: Row(
-        children: [
-          CircleAvatar(
-            backgroundColor: Colors.deepPurple,
-            child: Icon(icon, color: Colors.white),
-          ),
-          const SizedBox(width: 12),
-          Text(
-            title,
-            style: const TextStyle(fontWeight: FontWeight.bold),
-          ),
-        ],
-      ),
-    ),
-  );
-}
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("AlterEgo")),
+      backgroundColor: Colors.transparent,
+      appBar: AppBar(
+        title: const Text("AlterEgo"),
+        actions: [
+          if (Firebase.apps.isNotEmpty && FirebaseAuth.instance.currentUser != null)
+            IconButton(
+              tooltip: 'Logout',
+              onPressed: () => FirebaseAuth.instance.signOut(),
+              icon: const Icon(Icons.logout_rounded),
+            ),
+          IconButton(
+            tooltip: 'Toggle theme',
+            onPressed: () {
+              final next =
+                  themeMode == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark;
+              onThemeModeChanged(next);
+            },
+            icon: Icon(
+              themeMode == ThemeMode.dark
+                  ? Icons.light_mode_rounded
+                  : Icons.dark_mode_rounded,
+            ),
+          ),
+          const SizedBox(width: 4),
+        ],
+      ),
       body: Padding(
         padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: ListView(
           children: [
-            const Text(
-              "Pilih Persona",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            const Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                "Choose a persona",
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              "Pilih alter ego yang paling cocok buat mood kamu sekarang.",
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.65),
+              ),
             ),
             const SizedBox(height: 20),
-
-            personaCard(context, "Past Self", Icons.child_care),
-            personaCard(context, "Ideal Self", Icons.star),
-            personaCard(context, "Future Self", Icons.rocket),
+            personaCard(context, "Past Self", "healing & acceptance", Icons.child_care),
+            personaCard(context, "Ideal Self", "focus & discipline", Icons.star_rounded),
+            personaCard(context, "Future Self", "vision & direction", Icons.rocket_launch_rounded),
           ],
         ),
       ),

@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
+import '../ui/glass.dart';
 
 class ReflectionScreen extends StatefulWidget {
   const ReflectionScreen({super.key});
@@ -30,62 +31,78 @@ class _ReflectionScreenState extends State<ReflectionScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Scaffold(
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
         title: const Text("Reflection"),
-        backgroundColor: Colors.deepPurple,
       ),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-
-            /// BUTTON TAROT
-            GestureDetector(
-              onTap: drawCard,
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 30, vertical: 14),
-                decoration: BoxDecoration(
-                  color: Colors.deepPurple,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: const Text(
-                  "🔮 Tarik Kartu",
-                  style: TextStyle(color: Colors.white),
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 30),
-
-            /// HASIL KARTU
-            if (title != null)
-              Container(
-                padding: const EdgeInsets.all(20),
-                margin: const EdgeInsets.symmetric(horizontal: 20),
-                decoration: BoxDecoration(
-                  color: Colors.deepPurple.shade50,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Column(
-                  children: [
-                    Text(
-                      title!,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 18,
+      body: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                GlassCard(
+                  child: Column(
+                    children: [
+                      Icon(Icons.auto_awesome_rounded, color: scheme.primary),
+                      const SizedBox(height: 10),
+                      Text(
+                        "Reflection",
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w800,
+                          color: scheme.onSurface,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      message!,
-                      textAlign: TextAlign.center,
-                    ),
-                  ],
+                      const SizedBox(height: 6),
+                      Text(
+                        "Tarik kartu untuk dapet insight singkat.",
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: scheme.onSurface.withValues(alpha: 0.65),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      FilledButton.icon(
+                        onPressed: drawCard,
+                        icon: const Icon(Icons.style_rounded),
+                        label: const Text("Draw a card"),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-          ],
+                const SizedBox(height: 18),
+                if (title != null)
+                  GlassCard(
+                    child: Column(
+                      children: [
+                        Text(
+                          title!,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 18,
+                            color: scheme.onSurface,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          message!,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: scheme.onSurface.withValues(alpha: 0.75),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
         ),
       ),
     );

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "929828873637",
+    "project_id": "alterego-ad48c",
+    "storage_bucket": "alterego-ad48c.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:929828873637:android:e7ba0b27df36cca739744c",
+        "android_client_info": {
+          "package_name": "com.example.alterego_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDkaBKeily-oAVE_JSOmtC_4apPHVQpYDE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
