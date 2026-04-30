@@ -1,0 +1,60 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    // users/{uid}/personaChats/{persona}/messages/{messageId}
+    match /users/{uid} {
+      // Deny listing/reading the user doc by default unless you later add fields.
+      allow read, write: if false;
+
+      match /personaChats/{persona} {
+        // Chat container doc (optional). Deny direct access unless needed.
+        allow read, write: if false;
+
+        match /messages/{messageId} {
+          // Read-only for the owner.
+          allow get, list: if isOwner(uid);
+
+          // Create only if owner and payload is sane.
+          allow create: if isOwner(uid)
+            && request.resource.data.keys().hasOnly(['sender', 'message', 'persona', 'timestamp'])
+            && request.resource.data.sender is string
+            && request.resource.data.message is string
+            && request.resource.data.persona is string
+            // timestamp should be a Firestore timestamp when present.
+            && (!('timestamp' in request.resource.data) || request.resource.data.timestamp is timestamp);
+
+          // Optional: allow update/delete for the owner (useful for dev).
+          // If you want immutable chat logs, change these to: if false.
+          allow update, delete: if isOwner(uid);
+        }
+      }
+
+      // users/{uid}/reflections/{reflectionId}
+      match /reflections/{reflectionId} {
+        allow get, list: if isOwner(uid);
+        allow create: if isOwner(uid)
+          && request.resource.data.keys().hasAll(['mood', 'tags', 'note', 'createdAt'])
+          && request.resource.data.mood is int
+          && request.resource.data.tags is list
+          && request.resource.data.note is string
+          && request.resource.data.createdAt is timestamp;
+        allow update, delete: if isOwner(uid);
+      }
+    }
+
+    // Default deny for everything else.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
+

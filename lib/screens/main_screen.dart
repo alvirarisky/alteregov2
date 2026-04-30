@@ -1,16 +1,19 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'home_screen.dart';
-import 'chat_screen.dart';
+import 'chat_screen.dart'; // Tetap biarkan import-nya meskipun ChatScreen asli udah jarang dipakai
 import 'reflection_screen.dart';
 import 'history_screen.dart';
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../ui/glass.dart';
 import 'dart:ui';
+import '../models/message_model.dart';
+import '../services/firestore_service.dart';
+import '../services/groq_service.dart'; // [TAMBAH INI] Import Groq Service
 
 class MainScreen extends StatefulWidget {
   final ThemeMode themeMode;
@@ -34,12 +37,6 @@ class _MainScreenState extends State<MainScreen> {
   static const _prefsKeyLastPersona = 'alterego_last_persona';
   static const _prefsKeyMessagesByPersona = 'alterego_messages_by_persona';
 
-  static const Map<String, String> personaIdByName = {
-    "Past Self": "past",
-    "Ideal Self": "ideal",
-    "Future Self": "future",
-  };
-
   String? selectedPersona;
   final Map<String, List<Map<String, dynamic>>> messagesByPersona = {
     "Past Self": [],
@@ -48,20 +45,58 @@ class _MainScreenState extends State<MainScreen> {
   };
 
   bool isLoadingPersistedState = true;
-  final List<StreamSubscription<QuerySnapshot<Map<String, dynamic>>>> _subs = [];
+  final List<StreamSubscription<List<MessageModel>>> _subs = [];
+  StreamSubscription<User?>? _authSub;
+  final FirestoreService _firestoreService = FirestoreService();
+  final GroqService _groqService = GroqService(); // [TAMBAH INI] Inisialisasi AI
+
+  final Map<String, bool> _sendingByPersona = {};
+  final Map<String, String> _lastUserTextByPersona = {};
+  final Map<String, int> _lastUserTextAtMsByPersona = {};
+  final Map<String, int> _lastStreamErrorAtMsByPersona = {};
 
   @override
   void initState() {
     super.initState();
     _loadPersistedState();
+    _listenToAuthChanges();
   }
 
   @override
   void dispose() {
+    _authSub?.cancel();
     for (final s in _subs) {
       s.cancel();
     }
     super.dispose();
+  }
+
+  void _listenToAuthChanges() {
+    _authSub?.cancel();
+
+    if (Firebase.apps.isEmpty) return;
+    _authSub = FirebaseAuth.instance.authStateChanges().listen((user) {
+      if (!mounted) return;
+
+      if (user == null) {
+        for (final s in _subs) {
+          s.cancel();
+        }
+        _subs.clear();
+        _sendingByPersona.clear();
+        _lastUserTextByPersona.clear();
+        _lastUserTextAtMsByPersona.clear();
+        _lastStreamErrorAtMsByPersona.clear();
+        setState(() {
+          for (final persona in personas) {
+            messagesByPersona[persona] = [];
+          }
+        });
+        return;
+      }
+
+      _startFirestoreListenersIfSignedIn();
+    });
   }
 
   Future<void> _loadPersistedState() async {
@@ -76,7 +111,6 @@ class _MainScreenState extends State<MainScreen> {
           ? lastPersona
           : personas.first;
 
-      // Local messages only used for widget tests / when Firebase not available.
       if (Firebase.apps.isEmpty && messagesJson != null && messagesJson.isNotEmpty) {
         try {
           final decoded = jsonDecode(messagesJson);
@@ -110,31 +144,36 @@ class _MainScreenState extends State<MainScreen> {
     }
     _subs.clear();
 
-    final firestore = FirebaseFirestore.instance;
     for (final personaName in personas) {
-      final personaId = personaIdByName[personaName]!;
-      final sub = firestore
-          .collection('users')
-          .doc(user.uid)
-          .collection('personas')
-          .doc(personaId)
-          .collection('messages')
-          .orderBy('ts')
-          .snapshots()
-          .listen((snapshot) {
-        final mapped = snapshot.docs.map((d) {
-          final data = d.data();
-          return {
-            "sender": data["sender"],
-            "text": data["text"],
-            "ts": data["ts"],
-          };
-        }).toList();
-
+      final sub = _firestoreService.getMessagesByPersona(personaName).listen((msgs) {
+        final mapped = msgs
+            .map(
+              (m) => <String, dynamic>{
+                "sender": m.sender,
+                "text": m.message,
+                "message": m.message, // [FIX UI]: Pastikan 'message' ter-mapping juga!
+                "ts": m.timestamp?.millisecondsSinceEpoch,
+              },
+            )
+            .toList();
         if (!mounted) return;
         setState(() {
           messagesByPersona[personaName] = mapped;
         });
+      }, onError: (e, st) {
+        if (kDebugMode) {
+          debugPrint('[Firestore][ERROR] persona="$personaName" stream error: $e');
+        }
+        final now = DateTime.now().millisecondsSinceEpoch;
+        final lastAt = _lastStreamErrorAtMsByPersona[personaName] ?? 0;
+        if (mounted && (now - lastAt) > 6000) {
+          _lastStreamErrorAtMsByPersona[personaName] = now;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Koneksi bermasalah. Mencoba sinkron ulang chat...'),
+            ),
+          );
+        }
       });
       _subs.add(sub);
     }
@@ -144,7 +183,6 @@ class _MainScreenState extends State<MainScreen> {
     final prefs = await SharedPreferences.getInstance();
     final personaToSave = selectedPersona ?? personas.first;
     await prefs.setString(_prefsKeyLastPersona, personaToSave);
-    // Keep local persistence only for non-Firebase environments (tests).
     if (Firebase.apps.isEmpty) {
       await prefs.setString(_prefsKeyMessagesByPersona, jsonEncode(messagesByPersona));
     }
@@ -168,54 +206,88 @@ class _MainScreenState extends State<MainScreen> {
     });
   }
 
-  void _sendMessageForSelectedPersona(String text) {
+  // =======================================================================
+  // [BAGIAN PALING PENTING]: LOGIKA AI GROQ DI DALAM FUNGSI SEND MESSAGE
+  // =======================================================================
+  void _sendMessageForSelectedPersona(String text) async {
     final persona = selectedPersona ?? personas.first;
     final now = DateTime.now().millisecondsSinceEpoch;
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) return;
 
-    String reply;
-    if (persona == "Past Self") {
-      reply = "Aku ngerti... jangan takut ya.";
-    } else if (persona == "Ideal Self") {
-      reply = "Kamu pasti bisa, tetap fokus.";
-    } else {
-      reply = "Ini bagian dari proses, tetap jalan.";
-    }
+    final lastText = _lastUserTextByPersona[persona];
+    final lastAt = _lastUserTextAtMsByPersona[persona] ?? 0;
+    if (lastText == trimmed && (now - lastAt) < 700) return;
+    
+    _lastUserTextByPersona[persona] = trimmed;
+    _lastUserTextAtMsByPersona[persona] = now;
 
-    if (Firebase.apps.isNotEmpty && FirebaseAuth.instance.currentUser != null) {
-      final user = FirebaseAuth.instance.currentUser!;
-      final firestore = FirebaseFirestore.instance;
-      final personaId = personaIdByName[persona]!;
-      final coll = firestore
-          .collection('users')
-          .doc(user.uid)
-          .collection('personas')
-          .doc(personaId)
-          .collection('messages');
+    if (_sendingByPersona[persona] == true) return;
 
-      final batch = firestore.batch();
-      final userDoc = coll.doc();
-      batch.set(userDoc, {
-        "sender": "user",
-        "text": text,
-        "ts": FieldValue.serverTimestamp(),
-      });
-      final botDoc = coll.doc();
-      batch.set(botDoc, {
-        "sender": "bot",
-        "text": reply,
-        "ts": FieldValue.serverTimestamp(),
-      });
-      batch.commit();
-    } else {
-      // Fallback local (widget tests / no Firebase).
-      setState(() {
-        messagesByPersona[persona] = [
-          ...messagesByPersona[persona]!,
-          {"sender": "user", "text": text, "ts": now},
-          {"sender": "bot", "text": reply, "ts": now + 1},
-        ];
-      });
-      _persistState();
+    setState(() {
+      _sendingByPersona[persona] = true;
+    });
+
+    try {
+      // Jika pakai Firebase, kita simpan pesan user dulu
+      if (Firebase.apps.isNotEmpty && FirebaseAuth.instance.currentUser != null) {
+        final userMessage = MessageModel(
+          sender: "user",
+          message: trimmed,
+          persona: persona,
+          timestamp: DateTime.now(),
+        );
+        await _firestoreService.saveMessage(userMessage);
+
+        // Siapkan history untuk Groq (diambil dari state lokal messagesByPersona)
+        final history = (messagesByPersona[persona] ?? []).map((msg) {
+          final role = msg['sender'] == 'user' ? 'user' : 'assistant';
+          final content = (msg['message'] ?? msg['text'] ?? '').toString();
+          return {'role': role, 'content': content};
+        }).toList();
+
+        // [PANGGIL AI GROQ]
+        final aiResponse = await _groqService.chatWithPersona(
+          persona: persona,
+          messageHistory: history,
+        );
+
+        // Simpan balasan AI ke Firestore
+        final botMessage = MessageModel(
+          sender: "ai", // atau bisa diganti "bot" sesuai kesepakatan aplikasi lo
+          message: aiResponse,
+          persona: persona,
+          timestamp: DateTime.now(),
+        );
+        await _firestoreService.saveMessage(botMessage);
+      } else {
+        // Fallback kalau gak login / ga pakai Firebase (hanya UI test)
+        final aiResponse = await _groqService.chatWithPersona(
+          persona: persona,
+          messageHistory: [], // Simulasi history kosong
+        );
+        setState(() {
+          messagesByPersona[persona] = [
+            ...messagesByPersona[persona]!,
+            {"sender": "user", "text": trimmed, "message": trimmed, "ts": now},
+            {"sender": "ai", "text": aiResponse, "message": aiResponse, "ts": now + 1},
+          ];
+        });
+        _persistState();
+      }
+    } catch (e) {
+      if (kDebugMode) debugPrint('[ERROR AI]: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Gagal generate pesan dari AI: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _sendingByPersona[persona] = false;
+        });
+      }
     }
   }
 
@@ -236,6 +308,8 @@ class _MainScreenState extends State<MainScreen> {
         messages: chatMessages,
         onPersonaChanged: _selectPersona,
         onSend: _sendMessageForSelectedPersona,
+        // Lempar status 'sedang ngetik AI' ke ChatTabScreen untuk UI loading
+        isSending: _sendingByPersona[persona] ?? false, 
         onBack: () {
           setState(() {
             currentIndex = lastNonChatIndex;
@@ -338,6 +412,7 @@ class ChatTabScreen extends StatelessWidget {
   final List<Map<String, dynamic>> messages;
   final ValueChanged<String> onPersonaChanged;
   final ValueChanged<String> onSend;
+  final bool isSending; // Parameter baru untuk loading state
   final VoidCallback? onBack;
 
   const ChatTabScreen({
@@ -347,6 +422,7 @@ class ChatTabScreen extends StatelessWidget {
     required this.messages,
     required this.onPersonaChanged,
     required this.onSend,
+    this.isSending = false,
     this.onBack,
   });
 
@@ -387,10 +463,42 @@ class ChatTabScreen extends StatelessWidget {
           const SizedBox(width: 12),
         ],
       ),
-      body: ChatView(
-        persona: selectedPersona,
-        messages: messages,
-        onSend: onSend,
+      body: Stack(
+        children: [
+          // Panggil ChatView asli milik lo yang ada di chat_screen.dart
+          ChatView(
+            persona: selectedPersona,
+            messages: messages,
+            onSend: onSend,
+          ),
+          // Tambahkan efek loading "AI is typing..." jika sedang send message ke Groq
+          if (isSending)
+            Positioned(
+              bottom: 90,
+              left: 20,
+              child: GlassCard(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                borderRadius: BorderRadius.circular(12),
+                child: Row(
+                  children: [
+                    const SizedBox(
+                      width: 12,
+                      height: 12,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                    const SizedBox(width: 10),
+                    Text(
+                      "$selectedPersona is typing...",
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: scheme.onSurface.withValues(alpha: 0.7),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }

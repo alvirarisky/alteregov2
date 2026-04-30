@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart'; // Pastikan import ini ada
+
+import 'firebase_options.dart';
 import 'screens/main_screen.dart';
 import 'ui/app_theme.dart';
 import 'ui/glass.dart';
@@ -9,7 +12,20 @@ import 'auth/auth_gate.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp();
+
+  // [TAMBAHAN BARU]: Load file .env di sini
+  await dotenv.load(fileName: ".env");
+
+  // On Web, FirebaseOptions must be provided (no native config files).
+  // On mobile, options are typically read from google-services / plist.
+  if (kIsWeb) {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+  } else {
+    await Firebase.initializeApp();
+  }
+  
   runApp(const MyApp());
 }
 
