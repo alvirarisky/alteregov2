@@ -43,3 +43,15 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Secrets
+.env
+
+# Firebase local cache
+.firebase/
+
+# Wrong generated folder from firebase init
+Use existing project/
+
+# iOS Firebase config
+ios/Runner/GoogleService-Info.plist
