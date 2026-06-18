@@ -107,7 +107,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       child: Scaffold(
         backgroundColor: Colors.transparent,
         appBar: AppBar(
-          title: const Text('Edit Profil Lengkap (CRUD)', style: TextStyle(fontSize: 16)),
+          title: const Text('Edit Profil Lengkap', style: TextStyle(fontSize: 16)),
           backgroundColor: Colors.transparent,
           elevation: 0,
           leading: IconButton(icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20), onPressed: () => Navigator.pop(context)),
@@ -133,7 +133,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   const SizedBox(height: 16),
                   _buildTextField(_hobbyController, 'Hobi & Minat', Icons.favorite_border_rounded),
                   const SizedBox(height: 16),
-                  _buildTextField(_bioController, 'Tentang Saya (Context AI)', Icons.edit_note_rounded, maxLines: 3),
+                  _buildTextField(_bioController, 'Tentang Saya', Icons.edit_note_rounded, maxLines: 3),
                   
                   const SizedBox(height: 40),
                   

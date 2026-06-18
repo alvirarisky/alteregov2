@@ -126,7 +126,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             border: Border.all(color: const Color(0xFF8B5CF6).withOpacity(0.3)),
                             borderRadius: BorderRadius.circular(20),
                           ),
-                          child: const Text('Member UAS', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFFC4B5FD))),
+                          child: const Text('Member', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFFC4B5FD))),
                         ),
                       ],
                     ),
