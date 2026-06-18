@@ -3,7 +3,8 @@ import 'package:flutter/material.dart';
 class AppTheme {
   static ThemeData light() {
     final scheme = ColorScheme.fromSeed(
-      seedColor: Colors.deepPurple,
+      seedColor: Colors.teal, // Ganti jadi Teal
+      secondary: Colors.pinkAccent, // Aksen Pink
       brightness: Brightness.light,
     );
 
@@ -14,11 +15,12 @@ class AppTheme {
       appBarTheme: AppBarTheme(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        centerTitle: false,
+        centerTitle: true,
         titleTextStyle: TextStyle(
           color: scheme.onSurface,
-          fontSize: 18,
-          fontWeight: FontWeight.w700,
+          fontSize: 20,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 1.2,
         ),
         iconTheme: IconThemeData(color: scheme.onSurface),
       ),
@@ -27,7 +29,8 @@ class AppTheme {
 
   static ThemeData dark() {
     final scheme = ColorScheme.fromSeed(
-      seedColor: Colors.deepPurple,
+      seedColor: Colors.tealAccent, // Teal menyala untuk Dark Mode
+      secondary: Colors.pinkAccent, // Aksen Pink neon
       brightness: Brightness.dark,
     );
 
@@ -38,15 +41,15 @@ class AppTheme {
       appBarTheme: AppBarTheme(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        centerTitle: false,
+        centerTitle: true,
         titleTextStyle: TextStyle(
           color: scheme.onSurface,
-          fontSize: 18,
-          fontWeight: FontWeight.w700,
+          fontSize: 20,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 1.2,
         ),
         iconTheme: IconThemeData(color: scheme.onSurface),
       ),
     );
   }
 }
-

@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import 'package:flutter_dotenv/flutter_dotenv.dart';
+import '../config/api_config.dart';
 
 class GroqService {
   static const String _baseUrl = 'https://api.groq.com/openai/v1/chat/completions';
@@ -9,11 +9,68 @@ class GroqService {
   static const String _model = 'llama-3.1-8b-instant';
 
   String get _apiKey {
-    final key = dotenv.env['GROQ_API_KEY'];
-    if (key == null || key.isEmpty) {
+    final key = ApiConfig.groqApiKey;
+    print(key);
+    if (key.isEmpty) {
       throw Exception('GROQ_API_KEY tidak ditemukan di file .env');
     }
     return key;
+  }
+
+/// Fungsi BARU untuk UAS: Generate 3 Persona + Weather dalam 1x Hit!
+  Future<Map<String, dynamic>> generateInnerCouncil({
+    required String moodLabel,
+    required String note,
+  }) async {
+    final systemPrompt = '''
+Kamu adalah sistem AI psikologis untuk aplikasi "AlterEgo".
+Tugasmu adalah menganalisis emosi user ("\$moodLabel") dan curhatannya, lalu memberikan 4 output sekaligus.
+WAJIB membalas HANYA dengan format JSON yang valid, tanpa teks pendahuluan/penutup.
+
+Format JSON yang wajib kamu ikuti:
+{
+  "weather": "(1 kalimat metafora cuaca emosional yang puitis. Contoh: 'Hari ini seperti langit mendung dengan sedikit celah cahaya matahari.')",
+  "past": "(Respon dari 'Past Self': hangat, menerima, memvalidasi masa lalu. Maksimal 2 kalimat. Bahasa santai gaul 'aku/kamu')",
+  "ideal": "(Respon dari 'Ideal Self': tegas, disiplin, motivasi keras. Maksimal 2 kalimat. Bahasa santai 'aku/kamu')",
+  "future": "(Respon dari 'Future Self': bijak, tenang, visioner. Maksimal 2 kalimat. Bahasa santai 'aku/kamu')"
+}
+''';
+
+    final userPrompt = '''
+Emosi dominan: $moodLabel
+Curhatan: "$note"
+Berikan analisis Inner Council dalam JSON.
+''';
+
+    try {
+      final response = await http.post(
+        Uri.parse(_baseUrl),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $_apiKey',
+        },
+        body: jsonEncode({
+          'model': _model,
+          'messages': [
+            {'role': 'system', 'content': systemPrompt},
+            {'role': 'user', 'content': userPrompt},
+          ],
+          'temperature': 0.7,
+          'max_tokens': 800,
+          'response_format': {'type': 'json_object'}, // Memaksa Llama memuntahkan JSON murni
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final contentString = data['choices'][0]['message']['content'].toString().trim();
+        return jsonDecode(contentString) as Map<String, dynamic>;
+      } else {
+        throw Exception('Failed Groq: \${response.statusCode} - \${response.body}');
+      }
+    } catch (e) {
+      throw Exception('Error calling Groq API: \$e');
+    }
   }
 
   /// Fungsi untuk meng-generate solusi Reflection

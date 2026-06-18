@@ -55,3 +55,6 @@ Use existing project/
 
 # iOS Firebase config
 ios/Runner/GoogleService-Info.plist
+
+# API Config
+lib/config/api_config.dart

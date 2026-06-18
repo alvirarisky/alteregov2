@@ -1,6 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-
+import 'package:provider/provider.dart';
+import '../view_models/auth_view_model.dart';
 import 'login_screen.dart';
 
 class AuthGate extends StatelessWidget {
@@ -10,8 +11,9 @@ class AuthGate extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Mendengarkan perubahan state login langsung dari ViewModel
     return StreamBuilder<User?>(
-      stream: FirebaseAuth.instance.authStateChanges(),
+      stream: context.read<AuthViewModel>().authStateStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Scaffold(
@@ -26,4 +28,3 @@ class AuthGate extends StatelessWidget {
     );
   }
 }
-

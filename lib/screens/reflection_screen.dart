@@ -1,10 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:provider/provider.dart';
 import '../ui/glass.dart';
+import '../view_models/reflection_view_model.dart';
 import '../models/reflection_model.dart';
-import '../services/reflection_service.dart';
-import '../services/groq_service.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
 
 class ReflectionScreen extends StatefulWidget {
   const ReflectionScreen({super.key});
@@ -14,27 +12,22 @@ class ReflectionScreen extends StatefulWidget {
 }
 
 class _ReflectionScreenState extends State<ReflectionScreen> {
-  final ReflectionService _service = ReflectionService();
-  final GroqService _groqService = GroqService(); 
   final TextEditingController _noteController = TextEditingController();
 
-  static const _tags = <String>[
-    'stress',
-    'fokus',
-    'overthinking',
-    'cemas',
-    'sedih',
-    'marah',
-    'capek',
-    'motivasi',
-    'percaya diri',
+  // Data 8 Emosi untuk Mood Wheel
+  final List<Map<String, String>> _moods = [
+    {'label': 'joy', 'emoji': '✨'},
+    {'label': 'calm', 'emoji': '🍃'},
+    {'label': 'love', 'emoji': '💖'},
+    {'label': 'neutral', 'emoji': '😐'},
+    {'label': 'sad', 'emoji': '🌧️'},
+    {'label': 'fear', 'emoji': '🌪️'},
+    {'label': 'stress', 'emoji': '⚡'},
+    {'label': 'angry', 'emoji': '🔥'},
   ];
 
-  int _mood = 3;
-  final Set<String> _selectedTags = {};
-  bool _isSaving = false;
-  bool _isGenerating = false;
-  String? _lastSavedReflectionId;
+  String _selectedMoodLabel = 'neutral';
+  String _selectedMoodEmoji = '😐';
 
   @override
   void dispose() {
@@ -42,356 +35,302 @@ class _ReflectionScreenState extends State<ReflectionScreen> {
     super.dispose();
   }
 
-  void _resetForm() {
-    setState(() {
-      _mood = 3;
-      _selectedTags.clear();
-      _noteController.clear();
-      _lastSavedReflectionId = null;
-    });
-  }
-
-  void _markFormAsDirty() {
-    if (_lastSavedReflectionId != null) {
-      setState(() => _lastSavedReflectionId = null);
-    }
-  }
-
-  Future<void> _saveReflection({bool isFromGenerate = false}) async {
-    FocusScope.of(context).unfocus();
-
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
-      if (!mounted) return;
+  void _generateCouncil() async {
+    FocusScope.of(context).unfocus(); // Tutup keyboard
+    if (_noteController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Kamu belum login.')),
+        const SnackBar(content: Text('Tuliskan dulu apa yang kamu rasakan.')),
       );
       return;
     }
 
-    final note = _noteController.text.trim();
-    if (note.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Catatan refleksi tidak boleh kosong.')),
-      );
-      return;
-    }
-
-    setState(() => _isSaving = true);
     try {
-      final id = await _service.saveReflection(
-        ReflectionModel(
-          mood: _mood,
-          tags: _selectedTags.toList()..sort(),
-          note: note,
-          createdAt: DateTime.now(),
-        ),
-      );
-      if (!mounted) return;
-      
-      setState(() => _lastSavedReflectionId = id);
-      
-      if (!isFromGenerate) {
-        _resetForm();
+      await context.read<ReflectionViewModel>().generateAndSaveCouncil(
+            content: _noteController.text,
+            moodEmoji: _selectedMoodEmoji,
+            moodLabel: _selectedMoodLabel,
+          );
+      _noteController.clear();
+    } catch (e) {
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Reflection tersimpan.')),
+          SnackBar(content: Text('Gagal: $e')),
         );
       }
-    } catch (_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Gagal menyimpan reflection. Coba lagi.')),
-      );
-    } finally {
-      if (mounted) setState(() => _isSaving = false);
-    }
-  }
-
-  Future<void> _generateSolution() async {
-    FocusScope.of(context).unfocus();
-
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-
-    final note = _noteController.text.trim();
-    if (note.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Isi dulu catatan refleksinya ya.')),
-      );
-      return;
-    }
-
-    if (_lastSavedReflectionId == null) {
-      await _saveReflection(isFromGenerate: true);
-      if (_lastSavedReflectionId == null) return;
-    }
-
-    setState(() => _isGenerating = true);
-    try {
-      final response = await _groqService.generateReflectionSolution(
-        mood: _mood,
-        tags: _selectedTags.toList()..sort(),
-        note: note,
-      );
-
-      await _service.setAiResponse(
-        reflectionId: _lastSavedReflectionId!,
-        aiResponse: response,
-      );
-
-      if (!mounted) return;
-      
-      _resetForm();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Insight berhasil dibuat!')),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Gagal generate insight: $e')), 
-      );
-    } finally {
-      if (mounted) setState(() => _isGenerating = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final viewModel = context.watch<ReflectionViewModel>();
+
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: AppBar(
-        title: const Text("Reflection"),
+        title: const Text('Mind Space', style: TextStyle(fontWeight: FontWeight.w900)),
+        centerTitle: true,
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 420),
-            child: ListView(
-              children: [
-                GlassCard(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(Icons.auto_awesome_rounded, color: scheme.primary),
-                          const SizedBox(width: 10),
-                          Text(
-                            "Reflection",
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w800,
-                              color: scheme.onSurface,
+      body: CustomScrollView(
+        physics: const BouncingScrollPhysics(),
+        slivers: [
+          // --- BAGIAN 1: FORM INPUT (MOOD WHEEL & TEXT AREA) ---
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.all(20.0),
+              child: GlassCard(
+                padding: const EdgeInsets.all(24),
+                borderRadius: BorderRadius.circular(28),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'HOW DO YOU FEEL?',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 2,
+                        color: scheme.primary,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    
+                    // Mood Wheel (Horizontal Scroll)
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      physics: const BouncingScrollPhysics(),
+                      child: Row(
+                        children: _moods.map((mood) {
+                          final isSelected = _selectedMoodLabel == mood['label'];
+                          return Padding(
+                            padding: const EdgeInsets.only(right: 12),
+                            child: GestureDetector(
+                              onTap: () {
+                                setState(() {
+                                  _selectedMoodLabel = mood['label']!;
+                                  _selectedMoodEmoji = mood['emoji']!;
+                                });
+                              },
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 200),
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                decoration: BoxDecoration(
+                                  color: isSelected ? scheme.primary.withValues(alpha: 0.2) : Colors.transparent,
+                                  border: Border.all(
+                                    color: isSelected ? scheme.primary : scheme.onSurface.withValues(alpha: 0.1),
+                                    width: 1.5,
+                                  ),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Column(
+                                  children: [
+                                    Text(mood['emoji']!, style: const TextStyle(fontSize: 24)),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      mood['label']!.toUpperCase(),
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                        color: isSelected ? scheme.primary : scheme.onSurface.withValues(alpha: 0.6),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      Text(
-                        "Mood & tag membantu kamu tracking kondisi. Tombol “Generate Solusi” adalah step terpisah (lebih terkontrol).",
-                        style: TextStyle(
-                          color: scheme.onSurface.withValues(alpha: 0.70),
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      Text(
-                        "Mood: $_mood/5",
-                        style: TextStyle(
-                          fontWeight: FontWeight.w700,
-                          color: scheme.onSurface,
-                        ),
-                      ),
-                      Slider(
-                        value: _mood.toDouble(),
-                        min: 1,
-                        max: 5,
-                        divisions: 4,
-                        onChanged: (v) {
-                          setState(() => _mood = v.round());
-                          _markFormAsDirty(); 
-                        },
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        "Tags",
-                        style: TextStyle(
-                          fontWeight: FontWeight.w700,
-                          color: scheme.onSurface,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 6,
-                        children: _tags.map((t) {
-                          final selected = _selectedTags.contains(t);
-                          return FilterChip(
-                            label: Text(t),
-                            selected: selected,
-                            onSelected: (v) {
-                              setState(() {
-                                if (v) {
-                                  _selectedTags.add(t);
-                                } else {
-                                  _selectedTags.remove(t);
-                                }
-                              });
-                              _markFormAsDirty(); 
-                            },
                           );
                         }).toList(),
                       ),
-                      const SizedBox(height: 14),
-                      TextField(
+                    ),
+                    
+                    const SizedBox(height: 24),
+                    
+                    // Area Teks Transparan
+                    Container(
+                      decoration: BoxDecoration(
+                        color: scheme.onSurface.withValues(alpha: 0.05),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: TextField(
                         controller: _noteController,
                         maxLines: 4,
-                        textInputAction: TextInputAction.newline,
-                        onChanged: (v) => _markFormAsDirty(), 
+                        style: TextStyle(color: scheme.onSurface, fontSize: 14),
                         decoration: InputDecoration(
-                          hintText: "Tulis singkat: apa yang terjadi / apa yang kamu rasakan?",
-                          filled: true,
-                          fillColor: scheme.surface.withValues(alpha: 0.35),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(14),
-                            borderSide: BorderSide(
-                              color: scheme.outline.withValues(alpha: 0.25),
-                            ),
-                          ),
+                          hintText: "Tumpahkan semua beban pikiranmu di sini...",
+                          hintStyle: TextStyle(color: scheme.onSurface.withValues(alpha: 0.4)),
+                          border: InputBorder.none,
+                          contentPadding: const EdgeInsets.all(16),
                         ),
                       ),
+                    ),
+                    
+                    const SizedBox(height: 24),
+                    
+                    // Tombol Aksi
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        style: FilledButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          backgroundColor: scheme.primary,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        ),
+                        onPressed: viewModel.isGenerating ? null : _generateCouncil,
+                        icon: viewModel.isGenerating 
+                            ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                            : const Icon(Icons.psychology_rounded),
+                        label: Text(
+                          viewModel.isGenerating ? "CONSULTING COUNCIL..." : "GENERATE INNER COUNCIL",
+                          style: const TextStyle(fontWeight: FontWeight.w800, letterSpacing: 1),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+
+          // --- BAGIAN 2: BENTO GRID INNER COUNCIL (LATEST REFLECTION) ---
+          StreamBuilder<ReflectionModel?>(
+            stream: viewModel.latestReflectionStream,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting && !viewModel.isGenerating) {
+                return const SliverToBoxAdapter(child: SizedBox());
+              }
+
+              final reflection = snapshot.data;
+              if (reflection == null || reflection.councilResponses == null) {
+                return const SliverToBoxAdapter(child: SizedBox());
+              }
+
+              final weather = reflection.emotionalWeather ?? "Cuaca tidak menentu.";
+              final past = reflection.councilResponses!['past'] ?? '';
+              final ideal = reflection.councilResponses!['ideal'] ?? '';
+              final future = reflection.councilResponses!['future'] ?? '';
+
+              return SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 100), // Padding bawah agar tidak tertutup nav bar
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.only(left: 8, bottom: 12),
+                        child: Text(
+                          'YOUR INNER COUNCIL',
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 2, color: scheme.onSurface.withValues(alpha: 0.5)),
+                        ),
+                      ),
+                      
+                      // BENTO GRID START
+                      
+                      // 1. Emotional Weather (Full Width)
+                      GlassCard(
+                        padding: const EdgeInsets.all(20),
+                        borderRadius: BorderRadius.circular(24),
+                        child: Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(color: scheme.secondary.withValues(alpha: 0.15), shape: BoxShape.circle),
+                              child: Icon(Icons.wb_twilight_rounded, color: scheme.secondary, size: 24),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text("Emotional Weather", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: scheme.secondary, letterSpacing: 1)),
+                                  const SizedBox(height: 4),
+                                  Text('"$weather"', style: TextStyle(fontSize: 13, fontStyle: FontStyle.italic, color: scheme.onSurface, height: 1.4)),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      
                       const SizedBox(height: 12),
+                      
+                      // 2. Past Self & Ideal Self (2 Columns)
                       Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Expanded(
-                            child: OutlinedButton(
-                              onPressed: _isSaving ? null : () => _saveReflection(isFromGenerate: false),
-                              child: _isSaving
-                                  ? const SizedBox(
-                                      width: 18,
-                                      height: 18,
-                                      child: CircularProgressIndicator(strokeWidth: 2),
-                                    )
-                                  : const Text("Save"),
+                            child: _buildBentoCard(
+                              context, 
+                              "Past Self", 
+                              Icons.history_edu_rounded, 
+                              Colors.pinkAccent, 
+                              past,
                             ),
                           ),
-                          const SizedBox(width: 10),
+                          const SizedBox(width: 12),
                           Expanded(
-                            child: FilledButton(
-                              onPressed: (_isGenerating || _isSaving)
-                                  ? null
-                                  : _generateSolution,
-                              child: _isGenerating
-                                  ? const SizedBox(
-                                      width: 18,
-                                      height: 18,
-                                      child: CircularProgressIndicator(strokeWidth: 2),
-                                    )
-                                  : const Text("Generate Solusi"),
+                            child: _buildBentoCard(
+                              context, 
+                              "Ideal Self", 
+                              Icons.star_outline_rounded, 
+                              Colors.tealAccent, 
+                              ideal,
                             ),
                           ),
                         ],
+                      ),
+                      
+                      const SizedBox(height: 12),
+                      
+                      // 3. Future Self (Full Width)
+                      _buildBentoCard(
+                        context, 
+                        "Future Self", 
+                        Icons.rocket_launch_outlined, 
+                        Colors.lightBlueAccent, 
+                        future,
+                        isFullWidth: true,
                       ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 16),
-                GlassCard(
-                  child: StreamBuilder<ReflectionModel?>(
-                    stream: _service.streamLatestReflection(),
-                    builder: (context, snapshot) {
-                      if (snapshot.hasError) {
-                        return const Center(child: Text("Gagal memuat history."));
-                      }
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
 
-                      if (snapshot.connectionState == ConnectionState.waiting) {
-                        return const Center(child: CircularProgressIndicator());
-                      }
-
-                      final data = snapshot.data;
-                      if (data == null) {
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Text(
-                              "Latest reflection",
-                              style: TextStyle(
-                                fontWeight: FontWeight.w800,
-                                color: scheme.onSurface,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              "Belum ada reflection tersimpan.",
-                              style: TextStyle(
-                                color: scheme.onSurface.withValues(alpha: 0.70),
-                              ),
-                            ),
-                          ],
-                        );
-                      }
-
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Text(
-                            "Latest reflection",
-                            style: TextStyle(
-                              fontWeight: FontWeight.w800,
-                              color: scheme.onSurface,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            "Mood ${data.mood}/5 • ${data.tags.isEmpty ? "no tags" : data.tags.join(", ")}",
-                            style: TextStyle(
-                              color: scheme.onSurface.withValues(alpha: 0.75),
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            data.note,
-                            style: TextStyle(
-                              color: scheme.onSurface.withValues(alpha: 0.80),
-                            ),
-                          ),
-                          if (data.aiResponse != null) ...[
-                            const SizedBox(height: 12),
-                            Divider(color: scheme.outline.withValues(alpha: 0.25)),
-                            const SizedBox(height: 10),
-                            Text(
-                              "✨ Inner Voice Insight", // [UPDATE]: Berubah jadi Inner Voice Insight
-                              style: TextStyle(
-                                fontWeight: FontWeight.w800,
-                                color: scheme.onSurface,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            MarkdownBody(
-                              data: data.aiResponse!,
-                              styleSheet: MarkdownStyleSheet(
-                                p: TextStyle(
-                                  color: scheme.onSurface.withValues(alpha: 0.80),
-                                  height: 1.35,
-                                ),
-                                strong: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  color: scheme.onSurface,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ],
-                      );
-                    },
-                  ),
-                ),
-              ],
+  // Helper widget untuk membuat kartu Bento yang seragam
+  Widget _buildBentoCard(BuildContext context, String title, IconData icon, Color color, String content, {bool isFullWidth = false}) {
+    final scheme = Theme.of(context).colorScheme;
+    
+    return GlassCard(
+      padding: const EdgeInsets.all(20),
+      borderRadius: BorderRadius.circular(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: color, size: 18),
+              const SizedBox(width: 8),
+              Text(
+                title,
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: color),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            content,
+            style: TextStyle(
+              fontSize: 13,
+              color: scheme.onSurface.withValues(alpha: 0.85),
+              height: 1.5,
             ),
           ),
-        ),
+        ],
       ),
     );
   }

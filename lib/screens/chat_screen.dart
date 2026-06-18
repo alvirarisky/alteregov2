@@ -1,97 +1,24 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:provider/provider.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import '../ui/glass.dart';
-import '../services/groq_service.dart';
+import '../view_models/chat_view_model.dart'; 
 
 // ============================================================================
-// 1. CHAT SCREEN (Parent Widget yang mengurus Data & API)
+// 1. CHAT SCREEN (Sekarang murni hanya untuk merender UI / View)
 // ============================================================================
-class ChatScreen extends StatefulWidget {
+class ChatScreen extends StatelessWidget {
   final String persona;
 
   const ChatScreen({super.key, required this.persona});
 
   @override
-  State<ChatScreen> createState() => _ChatScreenState();
-}
-
-class _ChatScreenState extends State<ChatScreen> {
-  final GroqService _groqService = GroqService();
-  bool _isWaitingForAI = false;
-
-  User? get _currentUser => FirebaseAuth.instance.currentUser;
-
-  CollectionReference<Map<String, dynamic>> get _messagesRef {
-    return FirebaseFirestore.instance
-        .collection('users')
-        .doc(_currentUser!.uid)
-        .collection('personaChats')
-        .doc(widget.persona)
-        .collection('messages');
-  }
-
-  Future<void> _handleSendMessage(String text) async {
-    if (_currentUser == null) return;
-
-    // 1. Simpan pesan User ke Firestore
-    await _messagesRef.add({
-      'sender': 'user',
-      'message': text,
-      'persona': widget.persona,
-      'timestamp': FieldValue.serverTimestamp(),
-    });
-
-    setState(() => _isWaitingForAI = true);
-
-    try {
-      // 2. Ambil 10 pesan terakhir untuk "ingatan" AI
-      final snapshot = await _messagesRef
-          .orderBy('timestamp', descending: true)
-          .limit(10)
-          .get();
-
-      // Reverse agar urutannya dari terlama -> terbaru untuk dikirim ke Groq
-      final historyDocs = snapshot.docs.reversed.toList();
-      
-      List<Map<String, String>> messageHistory = historyDocs.map((doc) {
-        final data = doc.data();
-        // Groq/OpenAI format role: 'user' atau 'assistant'
-        final role = data['sender'] == 'user' ? 'user' : 'assistant'; 
-        // Mengantisipasi perubahan nama field 'message' atau 'text'
-        final content = (data['message'] ?? data['text'] ?? '').toString();
-        return {'role': role, 'content': content};
-      }).toList();
-
-      // 3. Panggil AI dari Groq
-      final aiResponse = await _groqService.chatWithPersona(
-        persona: widget.persona,
-        messageHistory: messageHistory,
-      );
-
-      // 4. Simpan balasan AI ke Firestore
-      await _messagesRef.add({
-        'sender': 'ai',
-        'message': aiResponse,
-        'persona': widget.persona,
-        'timestamp': FieldValue.serverTimestamp(),
-      });
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('AI sedang gangguan: $e')),
-      );
-    } finally {
-      if (mounted) {
-        setState(() => _isWaitingForAI = false);
-      }
-    }
-  }
-
-  @override
   Widget build(BuildContext context) {
-    if (_currentUser == null) {
+    // Hubungkan UI dengan ViewModel menggunakan Provider
+    final viewModel = context.watch<ChatViewModel>();
+
+    if (viewModel.currentUser == null) {
       return const Scaffold(
         body: Center(child: Text("Silakan login terlebih dahulu.")),
       );
@@ -100,11 +27,11 @@ class _ChatScreenState extends State<ChatScreen> {
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: AppBar(
-        title: Text(widget.persona),
+        title: Text(persona),
       ),
-      body: StreamBuilder<QuerySnapshot>(
-        // Mengambil data secara real-time dari Firestore
-        stream: _messagesRef.orderBy('timestamp').snapshots(),
+      body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+        // Mengambil data real-time dari ViewModel, bukan Firebase langsung
+        stream: viewModel.getMessagesStream(persona),
         builder: (context, snapshot) {
           if (snapshot.hasError) {
             return const Center(child: Text("Gagal memuat pesan."));
@@ -114,26 +41,28 @@ class _ChatScreenState extends State<ChatScreen> {
             return const Center(child: CircularProgressIndicator());
           }
 
-          // Ubah format data dari Firestore ke format yang diterima ChatView
+          // Format data dari Firestore ke bentuk List yang diterima ChatView
           final messages = snapshot.data?.docs.map((doc) {
-            final data = doc.data() as Map<String, dynamic>;
+            final data = doc.data();
             return {
               "id": doc.id,
               "sender": data['sender'],
-              // FIX: Ambil dari 'message' atau 'text'. Kalau kosong tampilkan peringatan.
-              "message": data['message'] ?? data['text'] ?? "Pesan kosong/Error baca data",
+              "message": data['message'] ?? data['text'] ?? "Pesan kosong/Error",
             };
           }).toList() ?? [];
 
           return Stack(
             children: [
               ChatView(
-                persona: widget.persona,
+                persona: persona,
                 messages: messages,
-                onSend: _handleSendMessage,
+                onSend: (text) {
+                  // UI hanya menyuruh ViewModel untuk bekerja (memisahkan logic)
+                  context.read<ChatViewModel>().sendMessage(text, persona);
+                },
               ),
-              // Menampilkan indikator kecil saat menunggu balasan AI
-              if (_isWaitingForAI)
+              // Menampilkan indikator loading yang diatur oleh ViewModel
+              if (viewModel.isWaitingForAI)
                 Positioned(
                   bottom: 90, 
                   left: 20,
@@ -149,7 +78,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         ),
                         const SizedBox(width: 10),
                         Text(
-                          "${widget.persona} is typing...",
+                          "$persona is typing...",
                           style: TextStyle(
                             fontSize: 12,
                             color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7),
@@ -168,7 +97,7 @@ class _ChatScreenState extends State<ChatScreen> {
 }
 
 // ============================================================================
-// 2. CHAT VIEW (UI Murni - Sudah menggunakan Markdown untuk AI Bubble)
+// 2. CHAT VIEW (UI Murni - Menggunakan Markdown untuk AI Bubble)
 // ============================================================================
 class ChatView extends StatefulWidget {
   final String persona;
@@ -269,7 +198,7 @@ class _ChatViewState extends State<ChatView> {
                     borderRadius: BorderRadius.circular(18),
                   ),
                   child: Text(
-                    displayText, // Menggunakan teks yang sudah difilter
+                    displayText, 
                     style: TextStyle(color: textColor),
                   ),
                 )

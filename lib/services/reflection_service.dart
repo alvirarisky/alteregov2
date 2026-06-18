@@ -25,14 +25,27 @@ class ReflectionService {
     return _firestore.collection('users').doc(uid).collection('reflections');
   }
 
-  Stream<ReflectionModel?> streamLatestReflection() {
+Stream<ReflectionModel?> streamLatestReflection() {
     final user = _requireUser;
     final q = _reflectionsCollection(user.uid)
         .orderBy('createdAt', descending: true)
         .limit(1);
+        
     return q.snapshots().map((snap) {
       if (snap.docs.isEmpty) return null;
-      return ReflectionModel.fromMap(snap.docs.first.data());
+      final doc = snap.docs.first;
+      return ReflectionModel.fromMap(doc.data(), doc.id);
+    });
+  }
+
+  Stream<List<ReflectionModel>> streamAllReflections() {
+    final user = _requireUser;
+    final q = _reflectionsCollection(user.uid).orderBy('createdAt', descending: true);
+    
+    return q.snapshots().map((snap) {
+      return snap.docs
+          .map((doc) => ReflectionModel.fromMap(doc.data(), doc.id))
+          .toList();
     });
   }
 
