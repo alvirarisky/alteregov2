@@ -15,6 +15,14 @@ class ReflectionViewModel extends ChangeNotifier {
   bool _isGenerating = false;
   bool get isGenerating => _isGenerating;
 
+  // ── STATE BARU UNTUK UI DINAMIS ─────────────────────────────
+  Map<String, dynamic>? _lastCouncilResult;
+  Map<String, dynamic>? get lastCouncilResult => _lastCouncilResult;
+
+  String? _lastWeather;
+  String? get lastWeather => _lastWeather;
+  // ────────────────────────────────────────────────────────────
+
   Stream<List<ReflectionModel>> get reflectionsStream =>
       _reflectionService.streamAllReflections();
 
@@ -45,25 +53,38 @@ class ReflectionViewModel extends ChangeNotifier {
     }
   }
 
+  // ── FUNGSI GENERATE AI YANG SUDAH DI-UPDATE ─────────────────
   Future<void> generateAndSaveCouncil({
     required String content,
     required String moodEmoji,
     required String moodLabel,
   }) async {
-    if (content.trim().isEmpty) return;
+    if (content.trim().isEmpty) throw Exception("Ceritamu belum diisi!");
     _isGenerating = true;
+    // Reset hasil sebelumnya saat loading baru
+    _lastWeather = null;
+    _lastCouncilResult = null;
     notifyListeners();
+    
     try {
+      // 1. Hit Llama-3 lewat Groq
       final aiResult = await _groqService.generateInnerCouncil(
         moodLabel: moodLabel,
         note: content.trim(),
       );
+      
       final weather = aiResult['weather'] as String? ?? 'Cuaca emosional tidak menentu.';
       final council = {
         'past': aiResult['past'] as String? ?? '...',
         'ideal': aiResult['ideal'] as String? ?? '...',
         'future': aiResult['future'] as String? ?? '...',
       };
+
+      // 2. Simpan ke State Lokal agar UI langsung berubah (MVVM Concept)
+      _lastWeather = weather;
+      _lastCouncilResult = council;
+
+      // 3. Background task: Tetap simpan ke Firebase (CRUD Requirement UAS)
       final reflection = ReflectionModel(
         content: content.trim(),
         moodEmoji: moodEmoji,
@@ -72,6 +93,7 @@ class ReflectionViewModel extends ChangeNotifier {
         councilResponses: council,
       );
       await _reflectionService.saveReflection(reflection);
+
     } catch (e) {
       debugPrint('[ReflectionViewModel] Inner Council Error: $e');
       rethrow;

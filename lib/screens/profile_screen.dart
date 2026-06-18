@@ -1,287 +1,213 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../ui/glass.dart';
+import '../view_models/profile_view_model.dart';
+import '../view_models/auth_view_model.dart';
+import 'edit_profile_screen.dart';
 
-class ProfileScreen extends StatelessWidget {
-  final ThemeMode themeMode;
-  final ValueChanged<ThemeMode> onThemeModeChanged;
+class ProfileScreen extends StatefulWidget {
+  final ThemeMode? themeMode;
+  final ValueChanged<ThemeMode>? onThemeModeChanged;
 
-  const ProfileScreen({
-    super.key,
-    required this.themeMode,
-    required this.onThemeModeChanged,
-  });
+  const ProfileScreen({super.key, this.themeMode, this.onThemeModeChanged});
+
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<ProfileViewModel>().fetchProfile();
+    });
+  }
+
+  // Stream untuk update statistik secara real-time
+  Stream<Map<String, String>> _streamUserStats() async* {
+    while (true) {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        yield {'chat': '0', 'reflect': '0'};
+        continue;
+      }
+      try {
+        final refQuery = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .collection('reflections')
+            .count()
+            .get();
+
+        int totalChat = 0;
+        for (String p in ['Past Self', 'Ideal Self', 'Future Self']) {
+          final snap = await FirebaseFirestore.instance
+              .collection('users')
+              .doc(user.uid)
+              .collection('personaChats')
+              .doc(p)
+              .collection('messages')
+              .where('sender', isEqualTo: 'user')
+              .count()
+              .get();
+          totalChat += (snap.count ?? 0);
+        }
+
+        yield {
+          'chat': totalChat.toString(),
+          'reflect': refQuery.count.toString(),
+        };
+      } catch (e) {
+        yield {'chat': '0', 'reflect': '0'};
+      }
+      await Future.delayed(const Duration(seconds: 2));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     final user = FirebaseAuth.instance.currentUser;
-    final email = user?.email ?? 'Unknown';
-    // Ambil nama dari email (sebelum @)
-    final displayName = user?.displayName ??
-        email.split('@').first.replaceAll('.', ' ').replaceAll('_', ' ');
-    final initials = displayName.isNotEmpty
-        ? displayName.trim().split(' ').map((e) => e[0]).take(2).join().toUpperCase()
-        : '?';
-    final isDark = themeMode == ThemeMode.dark;
+    final email = user?.email ?? 'alvira@email.com';
+    final name = user?.displayName ?? (email.split('@').first);
 
     return Scaffold(
       backgroundColor: Colors.transparent,
-      appBar: AppBar(
-        title: const Text(
-          'Profile',
-          style: TextStyle(fontWeight: FontWeight.w900),
-        ),
-        centerTitle: true,
-      ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          physics: const BouncingScrollPhysics(),
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            children: [
-              // ── Avatar & Info ──────────────────────────────────────
-              GlassCard(
-                padding: const EdgeInsets.all(28),
-                borderRadius: BorderRadius.circular(28),
-                child: Column(
-                  children: [
-                    CircleAvatar(
-                      radius: 42,
-                      backgroundColor: scheme.primary.withValues(alpha: 0.15),
-                      child: Text(
-                        initials,
-                        style: TextStyle(
-                          fontSize: 28,
-                          fontWeight: FontWeight.w900,
-                          color: scheme.primary,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      displayName,
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w900,
-                        color: scheme.onSurface,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      email,
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: scheme.onSurface.withValues(alpha: 0.55),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    // Badge "Active"
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 14, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: Colors.green.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(
-                            color: Colors.green.withValues(alpha: 0.4)),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
-                            width: 8,
-                            height: 8,
-                            decoration: const BoxDecoration(
-                              color: Colors.green,
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          const Text(
-                            'Active',
-                            style: TextStyle(
-                              color: Colors.green,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 13,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 20),
-
-              // ── Settings ──────────────────────────────────────────
-              GlassCard(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                borderRadius: BorderRadius.circular(24),
-                child: Column(
-                  children: [
-                    // Dark Mode Toggle
-                    ListTile(
-                      leading: Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: scheme.primary.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Icon(
-                          isDark
-                              ? Icons.dark_mode_rounded
-                              : Icons.light_mode_rounded,
-                          color: scheme.primary,
-                          size: 20,
-                        ),
-                      ),
-                      title: Text(
-                        'Dark Mode',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w700,
-                          color: scheme.onSurface,
-                        ),
-                      ),
-                      subtitle: Text(
-                        isDark ? 'Enabled' : 'Disabled',
-                        style: TextStyle(
-                          color: scheme.onSurface.withValues(alpha: 0.5),
-                          fontSize: 12,
-                        ),
-                      ),
-                      trailing: Switch(
-                        value: isDark,
-                        activeColor: scheme.primary,
-                        onChanged: (val) {
-                          onThemeModeChanged(
-                              val ? ThemeMode.dark : ThemeMode.light);
-                        },
-                      ),
-                    ),
-
-                    Divider(
-                      height: 1,
-                      indent: 16,
-                      endIndent: 16,
-                      color: scheme.onSurface.withValues(alpha: 0.08),
-                    ),
-
-                    // About App
-                    ListTile(
-                      leading: Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.blueAccent.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: const Icon(
-                          Icons.info_outline_rounded,
-                          color: Colors.blueAccent,
-                          size: 20,
-                        ),
-                      ),
-                      title: const Text(
-                        'About AlterEgo',
-                        style: TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                      subtitle: const Text(
-                        'v1.0.0 · Self-reflection & AI support',
-                        style: TextStyle(fontSize: 12),
-                      ),
-                      trailing: Icon(
-                        Icons.chevron_right_rounded,
-                        color: scheme.onSurface.withValues(alpha: 0.4),
-                      ),
-                      onTap: () => _showAboutDialog(context),
-                    ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 20),
-
-              // ── Logout ────────────────────────────────────────────
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: () => _confirmLogout(context),
-                  icon: const Icon(Icons.logout_rounded, size: 18),
-                  label: const Text(
-                    'Logout',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: scheme.error,
-                    side: BorderSide(
-                        color: scheme.error.withValues(alpha: 0.5)),
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 32),
-            ],
+      body: Stack(
+        children: [
+          // Background Glow
+          Positioned(
+            top: -100,
+            left: MediaQuery.of(context).size.width / 2 - 150,
+            child: GlowingOrb(
+              width: 300,
+              height: 300,
+              color: const Color(0xFF8B5CF6).withOpacity(0.25),
+            ),
           ),
-        ),
-      ),
-    );
-  }
 
-  void _showAboutDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text(
-          'AlterEgo',
-          style: TextStyle(fontWeight: FontWeight.w900),
-        ),
-        content: const Text(
-          'Aplikasi self-reflection & emotional support berbasis AI.\n\n'
-          'Versi 1.0.0\n'
-          'Dibuat oleh Tim AlterEgo — Telkom University Jakarta.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('OK'),
+          SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+              physics: const BouncingScrollPhysics(),
+              child: Column(
+                children: [
+                  // --- AVATAR SECTION ---
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8, bottom: 24),
+                    child: Column(
+                      children: [
+                        Container(
+                          width: 80,
+                          height: 80,
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color.fromRGBO(139, 92, 246, 0.4), Color.fromRGBO(109, 40, 217, 0.6)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            borderRadius: BorderRadius.circular(28),
+                            border: Border.all(color: const Color.fromRGBO(139, 92, 246, 0.5), width: 1.5),
+                          ),
+                          child: const Icon(Icons.person_rounded, size: 32, color: Color(0xFFC4B5FD)),
+                        ),
+                        const SizedBox(height: 16),
+                        Text(name, style: GoogleFonts.plusJakartaSans(fontSize: 20, fontWeight: FontWeight.w600, color: Colors.white, letterSpacing: 0.5)),
+                        const SizedBox(height: 4),
+                        Text(email, style: GoogleFonts.plusJakartaSans(fontSize: 14, color: Colors.white.withOpacity(0.5))),
+                        const SizedBox(height: 12),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF8B5CF6).withOpacity(0.25),
+                            border: Border.all(color: const Color(0xFF8B5CF6).withOpacity(0.3)),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: const Text('Member UAS', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFFC4B5FD))),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // --- STATS GRID (REALTIME) ---
+                  StreamBuilder<Map<String, String>>(
+                    stream: _streamUserStats(),
+                    builder: (context, snapshot) {
+                      final stats = snapshot.data ?? {'chat': '0', 'reflect': '0'};
+                      return GridView.count(
+                        crossAxisCount: 2,
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        childAspectRatio: 1.6,
+                        mainAxisSpacing: 10,
+                        crossAxisSpacing: 10,
+                        children: [
+                          _buildStatCard(stats['chat']!, 'Total Pesan'),
+                          _buildStatCard(stats['reflect']!, 'Refleksi Diri'),
+                          _buildStatCard('1', 'Hari Berturut'),
+                          _buildStatCard('Ideal', 'Persona Fav', isAccent: true),
+                        ],
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 32),
+
+                  // --- MENU SECTION ---
+                  GestureDetector(
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EditProfileScreen())),
+                    child: _buildMenuRow(Icons.edit_note_rounded, 'Edit Profil Lengkap'),
+                  ),
+                  const SizedBox(height: 12),
+                  GestureDetector(
+                    onTap: () => context.read<AuthViewModel>().logout(),
+                    child: _buildMenuRow(Icons.logout_rounded, 'Keluar Akun', color: const Color(0xFFF472B6)),
+                  ),
+                  const SizedBox(height: 120),
+                ],
+              ),
+            ),
           ),
         ],
       ),
     );
   }
 
-  void _confirmLogout(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text(
-          'Logout?',
-          style: TextStyle(fontWeight: FontWeight.w900),
-        ),
-        content: const Text('Kamu yakin mau keluar dari AlterEgo?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Batal'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: Colors.redAccent,
-            ),
-            onPressed: () async {
-              Navigator.pop(ctx);
-              await FirebaseAuth.instance.signOut();
-            },
-            child: const Text('Logout'),
-          ),
+  Widget _buildStatCard(String value, String label, {bool isAccent = false}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.06),
+        border: Border.all(color: Colors.white.withOpacity(0.12)),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(value, style: GoogleFonts.plusJakartaSans(fontSize: 22, fontWeight: FontWeight.bold, color: isAccent ? const Color(0xFFA78BFA) : Colors.white)),
+          const SizedBox(height: 4),
+          Text(label, style: GoogleFonts.plusJakartaSans(fontSize: 11, color: Colors.white.withOpacity(0.5), fontWeight: FontWeight.w500), textAlign: TextAlign.center),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMenuRow(IconData icon, String title, {Color? color}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.06),
+        border: Border.all(color: Colors.white.withOpacity(0.12), width: 0.5),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: color ?? Colors.white.withOpacity(0.6)),
+          const SizedBox(width: 14),
+          Expanded(child: Text(title, style: GoogleFonts.plusJakartaSans(fontSize: 14, fontWeight: FontWeight.w500, color: color ?? Colors.white))),
+          Icon(Icons.chevron_right_rounded, size: 18, color: Colors.white.withOpacity(0.3)),
         ],
       ),
     );

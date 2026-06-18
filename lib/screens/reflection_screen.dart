@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../ui/glass.dart';
 import '../view_models/reflection_view_model.dart';
-import '../models/reflection_model.dart';
 
 class ReflectionScreen extends StatefulWidget {
   const ReflectionScreen({super.key});
@@ -11,324 +10,365 @@ class ReflectionScreen extends StatefulWidget {
   State<ReflectionScreen> createState() => _ReflectionScreenState();
 }
 
-class _ReflectionScreenState extends State<ReflectionScreen> {
-  final TextEditingController _noteController = TextEditingController();
+class _ReflectionScreenState extends State<ReflectionScreen> with SingleTickerProviderStateMixin {
+  int _selectedMoodIndex = 2;
+  final List<String> _selectedTags = [];
+  final TextEditingController _storyController = TextEditingController();
+  late AnimationController _animController;
+  late Animation<double> _fadeAnim;
+  late Animation<Offset> _slideAnim;
 
-  // Data 8 Emosi untuk Mood Wheel
-  final List<Map<String, String>> _moods = [
-    {'label': 'joy', 'emoji': '✨'},
-    {'label': 'calm', 'emoji': '🍃'},
-    {'label': 'love', 'emoji': '💖'},
-    {'label': 'neutral', 'emoji': '😐'},
-    {'label': 'sad', 'emoji': '🌧️'},
-    {'label': 'fear', 'emoji': '🌪️'},
-    {'label': 'stress', 'emoji': '⚡'},
-    {'label': 'angry', 'emoji': '🔥'},
+  final List<Map<String, dynamic>> _moods = [
+    {'icon': Icons.sentiment_very_dissatisfied_rounded, 'color': const Color(0xFFEF4444), 'label': 'Hancur'},
+    {'icon': Icons.sentiment_dissatisfied_rounded, 'color': const Color(0xFFF59E0B), 'label': 'Capek'},
+    {'icon': Icons.sentiment_neutral_rounded, 'color': const Color(0xFF9CA3AF), 'label': 'Kosong'},
+    {'icon': Icons.sentiment_satisfied_rounded, 'color': const Color(0xFF10B981), 'label': 'Tenang'},
+    {'icon': Icons.sentiment_very_satisfied_rounded, 'color': const Color(0xFF8B5CF6), 'label': 'On Fire'},
   ];
 
-  String _selectedMoodLabel = 'neutral';
-  String _selectedMoodEmoji = '😐';
+  final Map<String, Map<String, Color>> _tagColors = {
+    'fokus': {'bg': const Color(0xFFA78BFA).withOpacity(0.2), 'border': const Color(0xFFA78BFA).withOpacity(0.4), 'text': const Color(0xFFC4B5FD)},
+    'motivasi': {'bg': const Color(0xFF2DD4BF).withOpacity(0.15), 'border': const Color(0xFF2DD4BF).withOpacity(0.35), 'text': const Color(0xFF5EEAD4)},
+    'cemas': {'bg': const Color(0xFFF472B6).withOpacity(0.15), 'border': const Color(0xFFF472B6).withOpacity(0.35), 'text': const Color(0xFFF9A8D4)},
+    'stress': {'bg': Colors.white.withOpacity(0.06), 'border': Colors.white.withOpacity(0.1), 'text': Colors.white54},
+    'capek': {'bg': Colors.white.withOpacity(0.06), 'border': Colors.white.withOpacity(0.1), 'text': Colors.white54},
+  };
+
+  @override
+  void initState() {
+    super.initState();
+    _animController = AnimationController(vsync: this, duration: const Duration(milliseconds: 1000));
+    _fadeAnim = CurvedAnimation(parent: _animController, curve: Curves.easeOut);
+    _slideAnim = Tween<Offset>(begin: const Offset(0, 0.15), end: Offset.zero)
+        .animate(CurvedAnimation(parent: _animController, curve: Curves.easeOutQuart));
+  }
+
+  void _toggleTag(String tag) {
+    setState(() {
+      _selectedTags.contains(tag) ? _selectedTags.remove(tag) : _selectedTags.add(tag);
+    });
+  }
 
   @override
   void dispose() {
-    _noteController.dispose();
+    _animController.dispose();
+    _storyController.dispose();
     super.dispose();
-  }
-
-  void _generateCouncil() async {
-    FocusScope.of(context).unfocus(); // Tutup keyboard
-    if (_noteController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Tuliskan dulu apa yang kamu rasakan.')),
-      );
-      return;
-    }
-
-    try {
-      await context.read<ReflectionViewModel>().generateAndSaveCouncil(
-            content: _noteController.text,
-            moodEmoji: _selectedMoodEmoji,
-            moodLabel: _selectedMoodLabel,
-          );
-      _noteController.clear();
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Gagal: $e')),
-        );
-      }
-    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final viewModel = context.watch<ReflectionViewModel>();
+    final vm = context.watch<ReflectionViewModel>();
 
     return Scaffold(
       backgroundColor: Colors.transparent,
-      appBar: AppBar(
-        title: const Text('Mind Space', style: TextStyle(fontWeight: FontWeight.w900)),
-        centerTitle: true,
-      ),
-      body: CustomScrollView(
-        physics: const BouncingScrollPhysics(),
-        slivers: [
-          // --- BAGIAN 1: FORM INPUT (MOOD WHEEL & TEXT AREA) ---
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.all(20.0),
-              child: GlassCard(
-                padding: const EdgeInsets.all(24),
-                borderRadius: BorderRadius.circular(28),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'HOW DO YOU FEEL?',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 2,
-                        color: scheme.primary,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    
-                    // Mood Wheel (Horizontal Scroll)
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      physics: const BouncingScrollPhysics(),
-                      child: Row(
-                        children: _moods.map((mood) {
-                          final isSelected = _selectedMoodLabel == mood['label'];
-                          return Padding(
-                            padding: const EdgeInsets.only(right: 12),
-                            child: GestureDetector(
-                              onTap: () {
-                                setState(() {
-                                  _selectedMoodLabel = mood['label']!;
-                                  _selectedMoodEmoji = mood['emoji']!;
-                                });
-                              },
-                              child: AnimatedContainer(
-                                duration: const Duration(milliseconds: 200),
-                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                decoration: BoxDecoration(
-                                  color: isSelected ? scheme.primary.withValues(alpha: 0.2) : Colors.transparent,
-                                  border: Border.all(
-                                    color: isSelected ? scheme.primary : scheme.onSurface.withValues(alpha: 0.1),
-                                    width: 1.5,
-                                  ),
-                                  borderRadius: BorderRadius.circular(20),
-                                ),
-                                child: Column(
-                                  children: [
-                                    Text(mood['emoji']!, style: const TextStyle(fontSize: 24)),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      mood['label']!.toUpperCase(),
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                                        color: isSelected ? scheme.primary : scheme.onSurface.withValues(alpha: 0.6),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          );
-                        }).toList(),
-                      ),
-                    ),
-                    
-                    const SizedBox(height: 24),
-                    
-                    // Area Teks Transparan
-                    Container(
-                      decoration: BoxDecoration(
-                        color: scheme.onSurface.withValues(alpha: 0.05),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: TextField(
-                        controller: _noteController,
-                        maxLines: 4,
-                        style: TextStyle(color: scheme.onSurface, fontSize: 14),
-                        decoration: InputDecoration(
-                          hintText: "Tumpahkan semua beban pikiranmu di sini...",
-                          hintStyle: TextStyle(color: scheme.onSurface.withValues(alpha: 0.4)),
-                          border: InputBorder.none,
-                          contentPadding: const EdgeInsets.all(16),
-                        ),
-                      ),
-                    ),
-                    
-                    const SizedBox(height: 24),
-                    
-                    // Tombol Aksi
-                    SizedBox(
-                      width: double.infinity,
-                      child: FilledButton.icon(
-                        style: FilledButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          backgroundColor: scheme.primary,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                        ),
-                        onPressed: viewModel.isGenerating ? null : _generateCouncil,
-                        icon: viewModel.isGenerating 
-                            ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                            : const Icon(Icons.psychology_rounded),
-                        label: Text(
-                          viewModel.isGenerating ? "CONSULTING COUNCIL..." : "GENERATE INNER COUNCIL",
-                          style: const TextStyle(fontWeight: FontWeight.w800, letterSpacing: 1),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+      body: Stack(
+        children: [
+          // Orb Kiri Bawah (Pink)
+          Positioned(
+            bottom: 100,
+            left: -80,
+            child: GlowingOrb(
+              width: 260,
+              height: 260,
+              color: const Color(0xFFF472B6).withOpacity(0.2), 
+            ),
+          ),
+          // Orb Kanan Atas (Ungu)
+          Positioned(
+            top: 100,
+            right: -60,
+            child: GlowingOrb(
+              width: 200,
+              height: 200,
+              color: const Color(0xFF8B5CF6).withOpacity(0.25), 
             ),
           ),
 
-          // --- BAGIAN 2: BENTO GRID INNER COUNCIL (LATEST REFLECTION) ---
-          StreamBuilder<ReflectionModel?>(
-            stream: viewModel.latestReflectionStream,
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting && !viewModel.isGenerating) {
-                return const SliverToBoxAdapter(child: SizedBox());
-              }
+          SafeArea(
+            child: SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Mind Space',
+                    style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 0.5),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Tumpahkan isi kepalamu hari ini.',
+                    style: TextStyle(fontSize: 14, color: Colors.white.withOpacity(0.5)),
+                  ),
+                  const SizedBox(height: 32),
 
-              final reflection = snapshot.data;
-              if (reflection == null || reflection.councilResponses == null) {
-                return const SliverToBoxAdapter(child: SizedBox());
-              }
-
-              final weather = reflection.emotionalWeather ?? "Cuaca tidak menentu.";
-              final past = reflection.councilResponses!['past'] ?? '';
-              final ideal = reflection.councilResponses!['ideal'] ?? '';
-              final future = reflection.councilResponses!['future'] ?? '';
-
-              return SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 100), // Padding bawah agar tidak tertutup nav bar
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.only(left: 8, bottom: 12),
-                        child: Text(
-                          'YOUR INNER COUNCIL',
-                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 2, color: scheme.onSurface.withValues(alpha: 0.5)),
-                        ),
-                      ),
+                  _buildSectionLabel('MOOD HARI INI'),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: List.generate(_moods.length, (index) {
+                      final isActive = _selectedMoodIndex == index;
+                      final mood = _moods[index];
                       
-                      // BENTO GRID START
-                      
-                      // 1. Emotional Weather (Full Width)
-                      GlassCard(
-                        padding: const EdgeInsets.all(20),
-                        borderRadius: BorderRadius.circular(24),
-                        child: Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(color: scheme.secondary.withValues(alpha: 0.15), shape: BoxShape.circle),
-                              child: Icon(Icons.wb_twilight_rounded, color: scheme.secondary, size: 24),
+                      return Expanded(
+                        child: GestureDetector(
+                          onTap: () => setState(() => _selectedMoodIndex = index),
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 250),
+                            curve: Curves.easeOutBack,
+                            margin: const EdgeInsets.symmetric(horizontal: 4),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            decoration: BoxDecoration(
+                              color: isActive ? (mood['color'] as Color).withOpacity(0.25) : Colors.white.withOpacity(0.06),
+                              border: Border.all(
+                                color: isActive ? (mood['color'] as Color).withOpacity(0.5) : Colors.white.withOpacity(0.1),
+                              ),
+                              borderRadius: BorderRadius.circular(14),
+                              // FIX ANIMASI SHADOW DI SINI BRAY
+                              boxShadow: [
+                                BoxShadow(
+                                  color: isActive ? (mood['color'] as Color).withOpacity(0.3) : Colors.transparent, 
+                                  blurRadius: 12, 
+                                  offset: const Offset(0, 4),
+                                )
+                              ],
                             ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                            child: Icon(
+                              mood['icon'] as IconData,
+                              color: isActive ? (mood['color'] as Color) : Colors.white54,
+                              size: isActive ? 28 : 24,
+                            ),
+                          ),
+                        ),
+                      );
+                    }),
+                  ),
+                  const SizedBox(height: 28),
+
+                  _buildSectionLabel('TAGS EMOSI'),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 12,
+                    children: _tagColors.keys.map((tag) {
+                      final isActive = _selectedTags.contains(tag);
+                      final bg = isActive ? _tagColors[tag]!['bg'] : Colors.white.withOpacity(0.06);
+                      final border = isActive ? _tagColors[tag]!['border'] : Colors.white.withOpacity(0.1);
+                      final textCol = isActive ? _tagColors[tag]!['text'] : Colors.white54;
+
+                      return GestureDetector(
+                        onTap: () => _toggleTag(tag),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: bg,
+                            border: Border.all(color: border!, width: 1),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(tag.toUpperCase(), style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: textCol, letterSpacing: 0.5)),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 28),
+
+                  _buildSectionLabel('CERITA KAMU'),
+                  const SizedBox(height: 12),
+                  GlassCard(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    borderRadius: BorderRadius.circular(20),
+                    child: TextField(
+                      controller: _storyController,
+                      maxLines: 5,
+                      minLines: 3,
+                      style: TextStyle(fontSize: 14, color: Colors.white.withOpacity(0.9), height: 1.5),
+                      decoration: InputDecoration(
+                        border: InputBorder.none,
+                        hintText: 'Tidak ada yang menghakimi di sini. Tulis saja...',
+                        hintStyle: TextStyle(color: Colors.white.withOpacity(0.3), fontStyle: FontStyle.italic),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 32),
+
+                  GestureDetector(
+                    onTap: () async {
+                      if (vm.isGenerating) return;
+                      if (_storyController.text.trim().isEmpty) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: const Text('Ceritamu masih kosong bray!', style: TextStyle(color: Colors.white)),
+                            backgroundColor: const Color(0xFFF472B6),
+                            behavior: SnackBarBehavior.floating,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          )
+                        );
+                        return;
+                      }
+                      
+                      _animController.reset(); 
+                      final tagsText = _selectedTags.isNotEmpty ? _selectedTags.join(', ') : 'netral';
+                      final moodLabel = _moods[_selectedMoodIndex]['label'] as String;
+
+                      try {
+                        await vm.generateAndSaveCouncil(
+                          content: _storyController.text,
+                          moodEmoji: moodLabel, 
+                          moodLabel: tagsText,
+                        );
+                        _animController.forward(); 
+                      } catch (e) {
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Koneksi AI terputus: $e')));
+                        }
+                      }
+                    },
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 300),
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 18),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: vm.isGenerating 
+                            ? [const Color(0xFF4C1D95), const Color(0xFF312E81)] 
+                            : [const Color(0xFF7C3AED), const Color(0xFF6D28D9)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(18),
+                        boxShadow: [
+                          BoxShadow(
+                            color: vm.isGenerating ? Colors.transparent : const Color(0xFF7C3AED).withOpacity(0.4), 
+                            blurRadius: 15, 
+                            offset: const Offset(0, 6)
+                          ),
+                        ],
+                      ),
+                      child: Center(
+                        child: vm.isGenerating
+                            ? Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  Text("Emotional Weather", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: scheme.secondary, letterSpacing: 1)),
-                                  const SizedBox(height: 4),
-                                  Text('"$weather"', style: TextStyle(fontSize: 13, fontStyle: FontStyle.italic, color: scheme.onSurface, height: 1.4)),
+                                  const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)),
+                                  const SizedBox(width: 12),
+                                  Text('Menyelami pikiranmu...', style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 14, fontStyle: FontStyle.italic)),
+                                ],
+                              )
+                            : const Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.auto_awesome, color: Colors.white, size: 20),
+                                  SizedBox(width: 8),
+                                  Text('TANYA INNER COUNCIL', style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
                                 ],
                               ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 40),
+
+                  if (vm.lastCouncilResult != null && !vm.isGenerating)
+                    FadeTransition(
+                      opacity: _fadeAnim,
+                      child: SlideTransition(
+                        position: _slideAnim,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Center(
+                              child: Text(
+                                '✨ PESAN UNTUKMU HARI INI ✨',
+                                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: const Color(0xFFA78BFA).withOpacity(0.8), letterSpacing: 1.5),
+                              ),
+                            ),
+                            const SizedBox(height: 24),
+                            
+                            if (vm.lastWeather != null) ...[
+                              Center(
+                                child: Text(
+                                  '"${vm.lastWeather}"',
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(fontSize: 14, color: Color(0xFF5EEAD4), height: 1.6, fontStyle: FontStyle.italic),
+                                ),
+                              ),
+                              const SizedBox(height: 32),
+                            ],
+
+                            _buildInsightCard(
+                              title: 'Dari Masa Lalumu',
+                              content: vm.lastCouncilResult!['past'] ?? '',
+                              icon: Icons.history_edu_rounded,
+                              accentColor: Colors.pinkAccent,
+                            ),
+                            const SizedBox(height: 16),
+
+                            _buildInsightCard(
+                              title: 'Dari Versi Terbaikmu',
+                              content: vm.lastCouncilResult!['ideal'] ?? '',
+                              icon: Icons.star_outline_rounded,
+                              accentColor: const Color(0xFFC4B5FD),
+                            ),
+                            const SizedBox(height: 16),
+
+                            _buildInsightCard(
+                              title: 'Dari Masa Depanmu',
+                              content: vm.lastCouncilResult!['future'] ?? '',
+                              icon: Icons.rocket_launch_outlined,
+                              accentColor: Colors.lightBlueAccent,
                             ),
                           ],
                         ),
                       ),
-                      
-                      const SizedBox(height: 12),
-                      
-                      // 2. Past Self & Ideal Self (2 Columns)
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(
-                            child: _buildBentoCard(
-                              context, 
-                              "Past Self", 
-                              Icons.history_edu_rounded, 
-                              Colors.pinkAccent, 
-                              past,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: _buildBentoCard(
-                              context, 
-                              "Ideal Self", 
-                              Icons.star_outline_rounded, 
-                              Colors.tealAccent, 
-                              ideal,
-                            ),
-                          ),
-                        ],
-                      ),
-                      
-                      const SizedBox(height: 12),
-                      
-                      // 3. Future Self (Full Width)
-                      _buildBentoCard(
-                        context, 
-                        "Future Self", 
-                        Icons.rocket_launch_outlined, 
-                        Colors.lightBlueAccent, 
-                        future,
-                        isFullWidth: true,
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            },
+                    ),
+                  
+                  const SizedBox(height: 120),
+                ],
+              ),
+            ),
           ),
         ],
       ),
     );
   }
 
-  // Helper widget untuk membuat kartu Bento yang seragam
-  Widget _buildBentoCard(BuildContext context, String title, IconData icon, Color color, String content, {bool isFullWidth = false}) {
-    final scheme = Theme.of(context).colorScheme;
-    
+  Widget _buildSectionLabel(String text) {
+    return Text(
+      text,
+      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 1.5, color: Colors.white.withOpacity(0.4)),
+    );
+  }
+
+  Widget _buildInsightCard({required String title, required String content, required IconData icon, required Color accentColor}) {
     return GlassCard(
       padding: const EdgeInsets.all(20),
-      borderRadius: BorderRadius.circular(24),
+      borderRadius: BorderRadius.circular(20),
+      borderColor: accentColor.withOpacity(0.3),
+      bgColor: accentColor.withOpacity(0.05),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(icon, color: color, size: 18),
-              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: accentColor.withOpacity(0.15),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icon, size: 14, color: accentColor),
+              ),
+              const SizedBox(width: 10),
               Text(
-                title,
-                style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: color),
+                title.toUpperCase(),
+                style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: accentColor.withOpacity(0.8), letterSpacing: 1.0),
               ),
             ],
           ),
           const SizedBox(height: 12),
           Text(
             content,
-            style: TextStyle(
-              fontSize: 13,
-              color: scheme.onSurface.withValues(alpha: 0.85),
-              height: 1.5,
-            ),
+            style: TextStyle(fontSize: 13, color: Colors.white.withOpacity(0.9), height: 1.5),
           ),
         ],
       ),

@@ -11,6 +11,7 @@ import 'auth/auth_gate.dart';
 import 'view_models/chat_view_model.dart';
 import 'view_models/reflection_view_model.dart';
 import 'view_models/auth_view_model.dart';
+import 'view_models/profile_view_model.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -26,6 +27,7 @@ Future<void> main() async {
         ChangeNotifierProvider(create: (_) => ChatViewModel()), 
         ChangeNotifierProvider(create: (_) => ReflectionViewModel()),
         ChangeNotifierProvider(create: (_) => AuthViewModel()),
+        ChangeNotifierProvider(create: (_) => ProfileViewModel()),
       ],
       child: const MyApp(),
     ),
@@ -79,9 +81,33 @@ class _MyAppState extends State<MyApp> {
 
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.light(),
+      theme: AppTheme.dark(), // Paksa Dark Mode untuk UI Glassmorphism
       darkTheme: AppTheme.dark(),
-      themeMode: themeMode,
+      themeMode: ThemeMode.dark,
+      
+      // 👇 INI KUNCINYA BRAY: Global Wrapper untuk Web 👇
+      builder: (context, child) {
+        if (kIsWeb) {
+          // Bungkus seluruh navigasi aplikasi di dalam kontainer HP
+          return Scaffold(
+            backgroundColor: const Color(0xFF06152D), // Warna background luar HP
+            body: Center(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(24), // Bikin sudut HP melengkung
+                child: SizedBox(
+                  width: 360,
+                  height: 720,
+                  // Tampilkan apapun halaman yang lagi aktif di dalam sini
+                  child: child, 
+                ),
+              ),
+            ),
+          );
+        }
+        // Kalau di HP Android/iOS asli, lepas aja tanpa dibungkus
+        return child!;
+      },
+      
       home: home,
     );
   }
@@ -90,24 +116,16 @@ class _MyAppState extends State<MyApp> {
 class AppWrapper extends StatelessWidget {
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode> onThemeModeChanged;
-  const AppWrapper({super.key, required this.themeMode, required this.onThemeModeChanged});
+  
+  const AppWrapper({
+    super.key, 
+    required this.themeMode, 
+    required this.onThemeModeChanged
+  });
 
   @override
   Widget build(BuildContext context) {
-    if (kIsWeb) {
-      return GlassBackground(
-        child: Scaffold(
-          backgroundColor: Colors.transparent,
-          body: Center(
-            child: Container(
-              width: 360, height: 720,
-              decoration: BoxDecoration(color: Theme.of(context).colorScheme.surface, borderRadius: BorderRadius.circular(25), boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 12)]),
-              child: MainScreen(themeMode: themeMode, onThemeModeChanged: onThemeModeChanged),
-            ),
-          ),
-        ),
-      );
-    }
+    // AppWrapper sekarang murni nge-return MainScreen karena batasan Web udah pindah ke global
     return MainScreen(themeMode: themeMode, onThemeModeChanged: onThemeModeChanged);
   }
 }

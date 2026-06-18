@@ -1,5 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../config/api_config.dart';
 
 class GroqService {
@@ -8,31 +10,56 @@ class GroqService {
   // Model yang dipakai
   static const String _model = 'llama-3.1-8b-instant';
 
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+
   String get _apiKey {
     final key = ApiConfig.groqApiKey;
-    print(key);
     if (key.isEmpty) {
       throw Exception('GROQ_API_KEY tidak ditemukan di file .env');
     }
     return key;
   }
 
-/// Fungsi BARU untuk UAS: Generate 3 Persona + Weather dalam 1x Hit!
+  /// Helper untuk mengambil data profil dari Firestore
+  Future<Map<String, dynamic>> _getUserProfile() async {
+    try {
+      final uid = _auth.currentUser?.uid;
+      if (uid == null) return {};
+
+      final doc = await _firestore.collection('users').doc(uid).get();
+      if (doc.exists && doc.data() != null && doc.data()!.containsKey('profile')) {
+        return doc.data()!['profile'] as Map<String, dynamic>;
+      }
+    } catch (e) {
+      print("Error fetching user profile: \$e");
+    }
+    return {};
+  }
+
+  /// Fungsi BARU untuk UAS: Generate 3 Persona + Weather dalam 1x Hit!
   Future<Map<String, dynamic>> generateInnerCouncil({
     required String moodLabel,
     required String note,
   }) async {
-    final systemPrompt = '''
-Kamu adalah sistem AI psikologis untuk aplikasi "AlterEgo".
-Tugasmu adalah menganalisis emosi user ("\$moodLabel") dan curhatannya, lalu memberikan 4 output sekaligus.
-WAJIB membalas HANYA dengan format JSON yang valid, tanpa teks pendahuluan/penutup.
+    // 1. Ambil profil untuk konteks kepribadian
+    final profile = await _getUserProfile();
+    final personality = profile['personality'] ?? 'seorang manusia biasa yang sedang berproses';
 
-Format JSON yang wajib kamu ikuti:
+    final systemPrompt = '''
+Kamu adalah "AlterEgo", ruang terdalam dari jiwa manusia, bukan sebuah asisten AI. Dilarang keras menyebut dirimu sebagai AI, bot, atau asisten.
+Karakteristik dasar pengguna ini: $personality.
+Tugasmu adalah menyelami emosi user ("$moodLabel") dan membaca curhatannya dengan penuh empati, layaknya berbicara dengan diri sendiri di depan cermin.
+
+WAJIB membalas HANYA dengan format JSON yang valid.
+Gunakan bahasa Indonesia santai (lo/gue atau aku/kamu yang sangat natural dan hangat). Jangan kaku.
+
+Format JSON:
 {
-  "weather": "(1 kalimat metafora cuaca emosional yang puitis. Contoh: 'Hari ini seperti langit mendung dengan sedikit celah cahaya matahari.')",
-  "past": "(Respon dari 'Past Self': hangat, menerima, memvalidasi masa lalu. Maksimal 2 kalimat. Bahasa santai gaul 'aku/kamu')",
-  "ideal": "(Respon dari 'Ideal Self': tegas, disiplin, motivasi keras. Maksimal 2 kalimat. Bahasa santai 'aku/kamu')",
-  "future": "(Respon dari 'Future Self': bijak, tenang, visioner. Maksimal 2 kalimat. Bahasa santai 'aku/kamu')"
+  "weather": "(1 kalimat metafora puitis tentang cuaca perasaannya hari ini. Contoh: 'Hari ini rasanya seperti berteduh dari hujan deras, dingin tapi menenangkan.')",
+  "past": "(Pesan dari diri masa lalunya. Memvalidasi bahwa rasa sakit/lelah itu valid, bangga dia sudah bertahan sejauh ini. Maksimal 2 kalimat.)",
+  "ideal": "(Pesan dari versi terbaik dirinya. Tegas tapi merangkul, menyuruhnya bangkit pelan-pelan. Maksimal 2 kalimat.)",
+  "future": "(Pesan dari dirinya di masa depan yang sudah sukses melewati ini. Memberikan ketenangan absolut. Maksimal 2 kalimat.)"
 }
 ''';
 
@@ -57,7 +84,7 @@ Berikan analisis Inner Council dalam JSON.
           ],
           'temperature': 0.7,
           'max_tokens': 800,
-          'response_format': {'type': 'json_object'}, // Memaksa Llama memuntahkan JSON murni
+          'response_format': {'type': 'json_object'}, 
         }),
       );
 
@@ -81,9 +108,13 @@ Berikan analisis Inner Council dalam JSON.
   }) async {
     final tagText = tags.isEmpty ? 'tanpa tag' : tags.join(', ');
     
-    // System prompt untuk persona "Inner Voice"
+    // Ambil profil untuk memberikan nuansa penyelesaian yang cocok dengan kepribadiannya
+    final profile = await _getUserProfile();
+    final personality = profile['personality'] ?? 'logis namun butuh didengar';
+    
     final systemPrompt = '''
 Kamu adalah "AlterEgo", suara hati terdalam dan versi paling bijaksana dari user.
+Karakteristik berpikir user: $personality. Sesuaikan caramu memberinya insight dengan kepribadian ini.
 JANGAN PERNAH menyebut dirimu AI atau asisten.
 Tugasmu adalah memvalidasi emosi user dengan hangat.
 Gunakan bahasa Indonesia santai Gen Z (aku/kamu).
@@ -108,13 +139,21 @@ Tolong dengarkan dan berikan insight-mu.
     required String persona, 
     required List<Map<String, String>> messageHistory, 
   }) async {
+    // Tarik data pilar utama dari Firestore
+    final profile = await _getUserProfile();
+    final personality = profile['personality'] ?? 'seorang mahasiswa yang sedang mengejar mimpinya';
+    final pastJoys = profile['past_joys'] ?? 'momen-momen di mana dia berhasil melewati rintangan';
+    final futureGoals = profile['future_goals'] ?? 'menjadi versi yang jauh lebih sukses dari saat ini';
+
     String systemPrompt = '';
 
+    // Injeksi variabel Firestore secara dinamis tanpa merusak instruksi batas kalimat
     switch (persona) {
       case 'Past Self':
         systemPrompt = '''
-Kamu adalah "Past Self" user saat masih SMK. 
+Kamu adalah "Past Self" user saat masih SMK. Kepribadian dasar user: $personality.
 Kamu polos dan sangat bangga melihat user yang sekarang sudah kuliah. 
+Sesekali ingatkan dia tentang hal yang dulu membuat kalian bahagia: $pastJoys.
 Gunakan bahasa Indonesia santai (aku/kamu). 
 WAJIB SINGKAT: Respon maksimal 2-3 kalimat saja. Langsung ke inti semangat.
 JANGAN curhat panjang lebar tentang masa lalu.
@@ -122,9 +161,10 @@ JANGAN curhat panjang lebar tentang masa lalu.
         break;
       case 'Future Self':
         systemPrompt = '''
-Kamu adalah "Future Self" user yang sudah sukses dan tenang. 
-Kamu melihat user sekarang dengan kasih sayang. 
-Yakinkan user bahwa semua akan baik-baik saja. 
+Kamu adalah "Future Self" user yang sudah sukses dan tenang mencapai tujuannya: $futureGoals. 
+Kepribadian dasar user: $personality.
+Kamu melihat user sekarang dengan kasih sayang dan kejelasan berpikir. 
+Yakinkan user bahwa tindakan yang dia ambil hari ini akan membawanya pada tujuan tersebut. 
 WAJIB SINGKAT: Respon maksimal 2-3 kalimat saja.
 Gunakan bahasa menenangkan (aku/kamu). JANGAN panggil dirimu AI.
 ''';
@@ -132,14 +172,15 @@ Gunakan bahasa menenangkan (aku/kamu). JANGAN panggil dirimu AI.
       case 'Ideal Self':
         systemPrompt = '''
 Kamu adalah "Ideal Self" (versi terbaik) dari user. 
-Kamu disiplin, visioner, dan berani. 
+Karakter aslimu adalah versi optimal dari: $personality.
+Kamu disiplin, visioner, dan berani mengkalibrasi agar user mencapai tujuannya: $futureGoals, tanpa melupakan esensi dari: $pastJoys. 
 Dorong user untuk tetap pada jalur mimpinya dengan tegas. 
 WAJIB SINGKAT: Respon maksimal 2-3 kalimat saja.
 Gunakan bahasa Indonesia santai tapi penuh power.
 ''';
         break;
       default:
-        systemPrompt = 'Kamu adalah suara hati yang suportif. Respon singkat maksimal 2 kalimat.';
+        systemPrompt = 'Kamu adalah suara hati yang suportif. Kepribadianmu: $personality. Respon singkat maksimal 2 kalimat.';
     }
 
     final messages = [
@@ -171,10 +212,10 @@ Gunakan bahasa Indonesia santai tapi penuh power.
         final data = jsonDecode(response.body);
         return data['choices'][0]['message']['content'].toString().trim();
       } else {
-        throw Exception('Failed to generate response: ${response.statusCode} - ${response.body}');
+        throw Exception('Failed to generate response: \${response.statusCode} - \${response.body}');
       }
     } catch (e) {
-      throw Exception('Error calling Groq API: $e');
+      throw Exception('Error calling Groq API: \$e');
     }
   }
 }

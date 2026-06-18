@@ -1,7 +1,9 @@
 import 'dart:ui';
-
 import 'package:flutter/material.dart';
 
+// ============================================================================
+// 1. GLASS BACKGROUND (Hanya Base Gradient Polos - Orbs Pindah ke Screen)
+// ============================================================================
 class GlassBackground extends StatelessWidget {
   final Widget child;
 
@@ -9,26 +11,17 @@ class GlassBackground extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    final colors = isDark
-        ? const [
-            Color(0xFF0B0B12),
-            Color(0xFF17102A),
-            Color(0xFF0B0B12),
-          ]
-        : const [
-            Color(0xFFF7F5FF),
-            Color(0xFFFFFFFF),
-            Color(0xFFF3EEFF),
-          ];
-
-    return DecoratedBox(
-      decoration: BoxDecoration(
+    return Container(
+      decoration: const BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: colors,
+          stops: [0.0, 0.4, 1.0],
+          colors: [
+            Color(0xFF1A0A2E), // Gelap ungu (.bg-grad di HTML)
+            Color(0xFF16082A), // Lebih gelap
+            Color(0xFF0D1A3A), // Gelap biru
+          ],
         ),
       ),
       child: child,
@@ -36,38 +29,76 @@ class GlassBackground extends StatelessWidget {
   }
 }
 
+// ============================================================================
+// 2. GLOWING ORB (Widget Kustom untuk Cahaya Neon di Tiap Halaman)
+// ============================================================================
+class GlowingOrb extends StatelessWidget {
+  final double width;
+  final double height;
+  final Color color;
+  final double blur;
+
+  const GlowingOrb({
+    super.key,
+    required this.width,
+    required this.height,
+    required this.color,
+    this.blur = 60.0, // Blur disesuaikan agar smooth
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ImageFiltered(
+      imageFilter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
+      child: Container(
+        width: width,
+        height: height,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: color,
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// 3. GLASS CARD (Optimasi Ketebalan Kaca Sesuai Mockup HTML)
+// ============================================================================
 class GlassCard extends StatelessWidget {
   final Widget child;
   final EdgeInsetsGeometry padding;
   final BorderRadius borderRadius;
+  final Color? bgColor;
+  final Color? borderColor;
 
   const GlassCard({
     super.key,
     required this.child,
     this.padding = const EdgeInsets.all(16),
     this.borderRadius = const BorderRadius.all(Radius.circular(20)),
+    this.bgColor,
+    this.borderColor,
   });
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final fill = isDark
-        ? Colors.white.withValues(alpha: 0.10)
-        : Colors.white.withValues(alpha: 0.70);
-    final border = isDark
-        ? Colors.white.withValues(alpha: 0.16)
-        : Colors.white.withValues(alpha: 0.45);
-
     return ClipRRect(
       borderRadius: borderRadius,
       child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+        // Menurunkan tingkat kemandegan dari 20.0 ke 12.0 biar tembus pandang jernih
+        filter: ImageFilter.blur(sigmaX: 12.0, sigmaY: 12.0), 
         child: Container(
           padding: padding,
           decoration: BoxDecoration(
-            color: fill,
+            // Mengikuti spek .glass-card HTML: Putih dasar opasitas 0.06
+            color: bgColor ?? Colors.white.withOpacity(0.06),
             borderRadius: borderRadius,
-            border: Border.all(color: border, width: 1),
+            border: Border.all(
+              // Mengikuti spek HTML: Border putih halus opasitas 0.15
+              color: borderColor ?? Colors.white.withOpacity(0.15), 
+              width: 0.5,
+            ),
           ),
           child: child,
         ),
@@ -75,4 +106,3 @@ class GlassCard extends StatelessWidget {
     );
   }
 }
-

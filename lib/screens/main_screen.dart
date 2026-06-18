@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'dart:ui';
-
 import 'home_screen.dart';
 import 'chat_screen.dart';
 import 'reflection_screen.dart';
@@ -27,13 +25,7 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> {
   int _currentIndex = 0;
 
-  // FIX: pindah ke level State biar bisa diakses child widget
-  static const List<String> _personas = [
-    'Past Self',
-    'Ideal Self',
-    'Future Self',
-  ];
-
+  static const List<String> _personas = ['Past Self', 'Ideal Self', 'Future Self'];
   String _selectedPersona = _personas.first;
 
   void _selectPersona(String persona) {
@@ -46,17 +38,20 @@ class _MainScreenState extends State<MainScreen> {
     setState(() => _currentIndex = 1);
   }
 
+  void _switchToHistoryTab() {
+    setState(() => _currentIndex = 3);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    // FIX: tidak double-provide — main.dart sudah provide ChatViewModel
     final chatVM = context.watch<ChatViewModel>();
+    // Cek apakah keyboard lagi terbuka
+    final isKeyboardOpen = MediaQuery.of(context).viewInsets.bottom > 0;
 
-    // FIX: explicit type List<Widget> agar IndexedStack tidak error
     final List<Widget> pages = [
       HomeScreen(
         onSelectPersona: _switchToChatTab,
+        onSeeAllHistory: _switchToHistoryTab,
         themeMode: widget.themeMode,
         onThemeModeChanged: widget.onThemeModeChanged,
       ),
@@ -73,7 +68,6 @@ class _MainScreenState extends State<MainScreen> {
         messagesByPersona: const {},
         onOpenPersona: _switchToChatTab,
       ),
-      // FIX: ProfileScreen sekarang bisa diakses — file ada di folder screens/
       ProfileScreen(
         themeMode: widget.themeMode,
         onThemeModeChanged: widget.onThemeModeChanged,
@@ -83,78 +77,77 @@ class _MainScreenState extends State<MainScreen> {
     return GlassBackground(
       child: Scaffold(
         backgroundColor: Colors.transparent,
-        extendBody: true,
-        body: IndexedStack(
-          index: _currentIndex,
-          children: pages,
-        ),
-        bottomNavigationBar: SafeArea(
-          top: false,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(24),
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+        // HANYA MAIN SCREEN YANG BOLEH RESIZE SAAT KEYBOARD MUNCUL
+        resizeToAvoidBottomInset: true, 
+        body: Stack(
+          children: [
+            IndexedStack(
+              index: _currentIndex,
+              children: pages,
+            ),
+            // FLOATING BOTTOM NAV: Hilang otomatis kalau keyboard ngetik kebuka
+            if (!isKeyboardOpen)
+              Positioned(
+                bottom: 24,
+                left: 20,
+                right: 20,
                 child: Container(
                   decoration: BoxDecoration(
-                    color: isDark
-                        ? Colors.white.withValues(alpha: 0.10)
-                        : Colors.white.withValues(alpha: 0.70),
-                    border: Border.all(
-                      color: Colors.white
-                          .withValues(alpha: isDark ? 0.18 : 0.40),
-                    ),
-                    borderRadius: BorderRadius.circular(24),
-                  ),
-                  child: BottomNavigationBar(
-                    backgroundColor: Colors.transparent,
-                    elevation: 0,
-                    type: BottomNavigationBarType.fixed,
-                    currentIndex: _currentIndex,
-                    onTap: (index) => setState(() => _currentIndex = index),
-                    selectedItemColor: scheme.primary,
-                    unselectedItemColor:
-                        scheme.onSurface.withValues(alpha: 0.55),
-                    selectedLabelStyle: const TextStyle(
-                        fontWeight: FontWeight.bold, fontSize: 11),
-                    unselectedLabelStyle: const TextStyle(fontSize: 11),
-                    items: const [
-                      BottomNavigationBarItem(
-                        icon: Icon(Icons.home_rounded),
-                        label: 'Home',
-                      ),
-                      BottomNavigationBarItem(
-                        icon: Icon(Icons.chat_bubble_rounded),
-                        label: 'Chat',
-                      ),
-                      BottomNavigationBarItem(
-                        icon: Icon(Icons.auto_awesome_rounded),
-                        label: 'Reflect',
-                      ),
-                      BottomNavigationBarItem(
-                        icon: Icon(Icons.history_rounded),
-                        label: 'History',
-                      ),
-                      BottomNavigationBarItem(
-                        icon: Icon(Icons.person_rounded),
-                        label: 'Profile',
-                      ),
+                    borderRadius: BorderRadius.circular(28),
+                    boxShadow: [
+                      BoxShadow(color: Colors.black.withOpacity(0.25), blurRadius: 20, offset: const Offset(0, 8)),
+                      BoxShadow(color: const Color(0xFF8B5CF6).withOpacity(0.1), blurRadius: 30, offset: const Offset(0, 0))
                     ],
+                  ),
+                  child: GlassCard( 
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    borderRadius: BorderRadius.circular(28),
+                    bgColor: const Color(0xFF16082A).withOpacity(0.85),
+                    borderColor: Colors.white.withOpacity(0.15),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      children: [
+                        _buildNavItem(Icons.home_rounded, 'Home', 0),
+                        _buildNavItem(Icons.chat_bubble_outline_rounded, 'Chat', 1),
+                        _buildNavItem(Icons.auto_awesome_rounded, 'Reflect', 2),
+                        _buildNavItem(Icons.history_rounded, 'History', 3),
+                        _buildNavItem(Icons.person_outline_rounded, 'Profile', 4),
+                      ],
+                    ),
                   ),
                 ),
               ),
-            ),
-          ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNavItem(IconData icon, String label, int index) {
+    final isActive = _currentIndex == index;
+    final color = isActive ? const Color(0xFFA78BFA) : Colors.white.withOpacity(0.35);
+
+    return GestureDetector(
+      onTap: () => setState(() => _currentIndex = index),
+      behavior: HitTestBehavior.opaque,
+      child: SizedBox(
+        width: 60,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: color, size: 22),
+            const SizedBox(height: 4),
+            Text(label, style: TextStyle(fontSize: 10, fontWeight: isActive ? FontWeight.w600 : FontWeight.normal, color: color)),
+            const SizedBox(height: 4),
+            Container(width: 4, height: 4, decoration: BoxDecoration(color: isActive ? const Color(0xFFA78BFA) : Colors.transparent, shape: BoxShape.circle)),
+          ],
         ),
       ),
     );
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Chat Tab
-// ─────────────────────────────────────────────────────────────────────────────
+// Wrapper Tab Chat di MainScreen
 class _ChatTab extends StatelessWidget {
   final String selectedPersona;
   final List<String> personas;
@@ -170,28 +163,29 @@ class _ChatTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    final isKeyboardOpen = MediaQuery.of(context).viewInsets.bottom > 0;
 
     return Scaffold(
       backgroundColor: Colors.transparent,
+      resizeToAvoidBottomInset: false, // MATIKAN RESIZE GANDA
       appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
         title: const Text('Chat'),
         actions: [
           DropdownButtonHideUnderline(
             child: DropdownButton<String>(
               value: selectedPersona,
-              dropdownColor: scheme.surface,
-              iconEnabledColor: scheme.onSurface,
-              style: TextStyle(color: scheme.onSurface),
-              items: personas
-                  .map((p) => DropdownMenuItem(value: p, child: Text(p)))
-                  .toList(),
+              dropdownColor: const Color(0xFF16082A),
+              iconEnabledColor: Colors.white,
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+              items: personas.map((p) => DropdownMenuItem(value: p, child: Text(p))).toList(),
               onChanged: (val) {
                 if (val != null) onPersonaChanged(val);
               },
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 16),
         ],
       ),
       body: Stack(
@@ -199,27 +193,16 @@ class _ChatTab extends StatelessWidget {
           ChatScreen(persona: selectedPersona),
           if (isWaitingForAI)
             Positioned(
-              bottom: 90,
+              bottom: isKeyboardOpen ? 80 : 100, // Dinamis menyesuaikan keyboard
               left: 20,
               child: GlassCard(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 12, vertical: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 borderRadius: BorderRadius.circular(12),
                 child: Row(
                   children: [
-                    const SizedBox(
-                      width: 12,
-                      height: 12,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
+                    const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFA78BFA))),
                     const SizedBox(width: 10),
-                    Text(
-                      '$selectedPersona is typing...',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: scheme.onSurface.withValues(alpha: 0.7),
-                      ),
-                    ),
+                    Text('$selectedPersona is typing...', style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.7))),
                   ],
                 ),
               ),
