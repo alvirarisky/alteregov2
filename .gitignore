@@ -44,8 +44,6 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
-# Secrets
-.env
 
 # Firebase local cache
 .firebase/
